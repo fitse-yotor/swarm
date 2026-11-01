@@ -69,6 +69,14 @@ runs of a case shows how the same population reacts to favourable versus unfavou
 build page shows the knowledge graph assembling live in 3D (Three.js via `3d-force-graph`, bundled locally, no CDN), then
 hands over to the final graph.
 
+## Graph and simulation interaction
+
+- **Sidebar:** icons only (hover for a description). Case icons (graph, review, documents, stages 2-5) appear only while a case is open; create a case from the Dashboard or Cases page.
+- **Graph explorer:** a full-width canvas with a right-hand icon rail (Inspector, Filters, Sources, View options). Click an icon to open its panel; click a source to drill into the entities it supports. Toggle **2D / 3D**. Clicking a node isolates it: only that node and its direct connections stay, until you click another node or press *show all*.
+- **Reaction graphs** (simulation page, *Reaction graph · 3D*): the whole run (who reacted to whom), one persona (what it posted and who reacted), or one post's cascade (comments, reposts, likes, replies to replies).
+- **Trigger a persona** (simulation card *Trigger a persona*): make a synthetic persona post, comment, repost, like or dislike inside a finished run, optionally letting the others react (rule-based by stance closeness). Events are labelled `analyst-trigger` / `reaction-model`.
+- **Reports** list every persona's actions (posts, comments, reposts, likes) and the reactions under the most-engaged posts.
+
 ## Run it locally
 
 ```bash

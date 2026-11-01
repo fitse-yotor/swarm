@@ -218,7 +218,7 @@ export default function Graph3D({ nodes, links, live, theme, labels = true, node
   // Filters or a new isolated node: re-apply visibility, then frame what is left.
   useEffect(() => {
     restyle();
-    const t = setTimeout(() => fg.current?.zoomToFit(700, 70, n => !S.hidden.has((n as N).id)), 250);
+    const t = setTimeout(() => fg.current?.zoomToFit(700, 130, n => !S.hidden.has((n as N).id)), 250);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hidden, isolate]);

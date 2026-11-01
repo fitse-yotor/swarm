@@ -630,7 +630,7 @@ mark{background:color-mix(in srgb,var(--warn) 30%,transparent);color:inherit;bor
 .gx-rail button.on{background:var(--acc-soft);color:var(--acc)}
 .gx-rail button svg{width:19px;height:19px}
 .gx-rail .rail-n{position:absolute;right:1px;top:1px;min-width:16px;height:16px;border-radius:8px;background:var(--acc);color:#fff;font:600 9.5px var(--ui);display:grid;place-items:center;padding:0 4px;font-style:normal}
-.gx-panel{position:absolute;right:48px;top:0;bottom:0;width:min(372px,calc(100% - 48px));background:var(--surf);border-left:1px solid var(--bd);display:flex;flex-direction:column;z-index:6;box-shadow:-10px 0 30px rgba(0,0,0,.22);animation:panelin 140ms ease-out}
+.gx-panel{position:absolute;right:48px;top:0;bottom:0;width:372px;max-width:calc(100% - 48px);background:var(--surf);border-left:1px solid var(--bd);display:flex;flex-direction:column;z-index:6;box-shadow:-10px 0 30px rgba(0,0,0,.22);animation:panelin 140ms ease-out}
 @keyframes panelin{from{transform:translateX(14px);opacity:0}to{transform:none;opacity:1}}
 .gx-panel-h{height:44px;display:flex;align-items:center;gap:8px;padding:0 10px 0 16px;border-bottom:1px solid var(--bd);flex:none}
 .gx-panel-b{flex:1;overflow-y:auto;min-height:0}

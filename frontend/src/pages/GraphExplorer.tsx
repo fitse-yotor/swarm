@@ -18,6 +18,7 @@ import { AddEdgeModal, AddNodeModal, ApproveModal, AskPanel, CompareModal, Expor
 const ALL_STATUS: ClaimStatus[] = ["approved", "pending", "conflict", "manual", "rejected"];
 const freshFilter = () => ({ types: new Set<EntityType>(TYPE_KEYS), rels: null as Set<string> | null, conf: [0, 1] as [number, number],
   status: new Set<ClaimStatus>(["approved", "pending", "conflict", "manual"]), docs: null as Set<string> | null, comm: "all", q: "" });
+const PANEL_W = 372;  // keep in sync with .gx-panel width in styles.css
 export type Filters = ReturnType<typeof freshFilter>;
 
 export function useGraph(caseId: string, versionId: string | null) {
@@ -219,7 +220,7 @@ export default function GraphExplorer() {
   return <div className="gx-wrap" style={{ height: "100%", display: "flex", flexDirection: "column" }}>
     <div className="gx gx2" style={{ flex: 1 }}>
       {/* ---------- canvas ---------- */}
-      <section className={`gx-center ${full ? "full" : ""}`} aria-label="Graph canvas">
+      <section className={`gx-center ${full ? "full" : ""}`} aria-label="Graph canvas" style={full ? undefined : { right: 48 + (rpanel ? PANEL_W : 0) }}>
         {view3d
           ? <Graph3D nodes={g3.nodes} links={g3.links} live={false} theme={theme} labels={labels !== "none"} hidden={hidden} isolate={isolate} pin={false}
               onPick={(id) => isolateNode(id)} />

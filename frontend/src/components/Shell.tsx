@@ -51,7 +51,8 @@ export default function Shell() {
       const r = e.currentTarget.getBoundingClientRect();
       setTip({ label, desc, top: r.top + r.height / 2 });
     };
-    return { "aria-label": label, onMouseEnter: show, onFocus: show, onMouseLeave: () => setTip(null), onBlur: () => setTip(null),
+    // Focus shows the card only for keyboard focus; a mouse click focuses the button too and would bring a stale card back.
+    return { "aria-label": label, onMouseEnter: show, onFocus: (e: FocusEvent<HTMLElement>) => { if (e.currentTarget.matches(":focus-visible")) show(e); }, onMouseLeave: () => setTip(null), onBlur: () => setTip(null),
       onMouseDown: () => setTip(null) };
   };
   const needCase = caseId ? "" : " Open a case first.";

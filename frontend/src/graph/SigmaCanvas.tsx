@@ -123,6 +123,7 @@ const SigmaCanvas = forwardRef<CanvasHandle, Props>(function SigmaCanvas(p, ref)
       },
     });
     sigmaRef.current = sigma;
+    if (import.meta.env.DEV) (window as unknown as { __sigma?: unknown }).__sigma = sigma;  // lets browser tests find node coordinates
 
     sigma.on("clickNode", ({ node, event }) => {
       if (L.moved) return;
@@ -150,7 +151,10 @@ const SigmaCanvas = forwardRef<CanvasHandle, Props>(function SigmaCanvas(p, ref)
     });
     const up = () => { if (L.dragging && L.moved) savePositions(); L.dragging = null; setTimeout(() => { L.moved = false; }, 0); };
     sigma.getMouseCaptor().on("mouseup", up);
-    return () => { sigma.kill(); sigmaRef.current = null; };
+    // The canvas resizes when the side panel opens or closes; Sigma only listens to window resizes by itself.
+    const ro = new ResizeObserver(() => { sigma.resize(); sigma.refresh({ skipIndexation: true }); });
+    ro.observe(host.current!);
+    return () => { ro.disconnect(); sigma.kill(); sigmaRef.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
