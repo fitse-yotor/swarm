@@ -12,7 +12,7 @@ from app.core.db import SessionLocal, get_db
 from app.core.deps import audit, current_user, get_case, require
 from app.models import (Conversation, Environment, GraphVersion, ProcessingJob, Report, SimEvent, Simulation, User,
                         utcnow)
-from app.services import interaction, personas, reactions, versions
+from app.services import interaction, personas, reactions, versions, workspace
 from app.services.environment import DEFAULT_CONFIG
 
 router = APIRouter(tags=["workflow"])
@@ -85,7 +85,8 @@ def create_env(case_id: str, body: EnvIn, bg: BackgroundTasks, db: Session = Dep
         raise HTTPException(409, "Build a knowledge graph before setting up an environment")
     allowed = {k: body.config[k] for k in DEFAULT_CONFIG.keys() | {"focus_node_id", "focus_label"} if k in body.config}
     env = Environment(case_id=case_id, version_id=v.id, name=body.name.strip(), scenario=body.scenario.strip(),
-                      config={**DEFAULT_CONFIG, **allowed}, created_by=user.name)
+                      config={**DEFAULT_CONFIG, **workspace.sim_defaults(db, user.tenant_id), **allowed},
+                      created_by=user.name)
     db.add(env)
     db.flush()
     env.job_id = start_job(db, user, case_id, "environment", env.id)

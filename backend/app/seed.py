@@ -15,7 +15,7 @@ from app.core.db import Base, engine, session_scope
 from app.core.neo4j import ensure_schema, get_driver
 from app.core.security import hash_password
 from app.models import AuditEvent, Case, ProcessingJob, SourceDocument, Tenant, User
-from app.services import storage
+from app.services import storage, workspace
 from app.services.pipeline import run_graph_build
 
 SEED_DIR = Path(__file__).resolve().parent.parent / "seed_data"
@@ -68,6 +68,7 @@ def seed(build: bool) -> None:
         t = Tenant(name="Northbridge Institute")
         db.add(t)
         db.flush()
+        workspace.ensure_roles(db, t.id)
         users = {}
         for name, email, role, status in USERS:
             u = User(tenant_id=t.id, name=name, email=email, role=role, status=status,

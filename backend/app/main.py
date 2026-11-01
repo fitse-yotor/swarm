@@ -3,7 +3,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, cases, documents, graph, jobs, workflow
+from app.api import admin, auth, cases, documents, graph, jobs, workflow
 from app.core.config import settings
 from app.core.db import Base, engine
 from app.services import embeddings, llm
@@ -18,7 +18,8 @@ Base.metadata.create_all(engine)  # adds new tables; schema changes still need a
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins, allow_credentials=True,
                    allow_methods=["*"], allow_headers=["*"])
 
-for r in (auth.router, cases.router, documents.router, jobs.router, graph.router, workflow.router):
+for r in (auth.router, cases.router, documents.router, jobs.router, graph.router, workflow.router, admin.router,
+          admin.public):
     app.include_router(r, prefix=settings.api_prefix)
 
 

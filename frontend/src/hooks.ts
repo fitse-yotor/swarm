@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api, type Case, type Conversation, type Environment, type Job, type Report, type Simulation, type SystemStatus } from "./api";
+import { api, type Case, type Conversation, type Environment, type Job, type Report, type Simulation, type SystemStatus, type Workspace } from "./api";
 
 const live = (j?: Job | null) => !!j && (j.status === "queued" || j.status === "running");
 
@@ -45,3 +45,7 @@ export function useTheme(): string {
   }, []);
   return theme;
 }
+
+/** Workspace name and defaults (cached; the shell loads it on every page). */
+export const useWorkspace = () =>
+  useQuery({ queryKey: ["workspace"], queryFn: () => api.get<Workspace>("/workspace"), staleTime: 60_000 });

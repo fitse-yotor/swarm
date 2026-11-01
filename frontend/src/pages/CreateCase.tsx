@@ -1,9 +1,10 @@
-import { useRef, useState, type DragEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { Edit3, FileText, Share2, Trash2, Upload } from "lucide-react";
 import { api, type Case, type EntityType, type Job } from "../api";
 import { useAuth } from "../auth";
+import { useWorkspace } from "../hooks";
 import { EtypeTag, Modal, ShapeIcon, useToast } from "../components/ui";
 import { ETYPES, TYPE_KEYS, fmtBytes } from "../vocab";
 
@@ -48,6 +49,8 @@ export default function CreateCase() {
   const [step, setStep] = useState(0);
   const [d, setD] = useState({ title: "", description: "", research_question: "", objective: "", tags: "", visibility: "Team",
     scope_type: "" as "" | "person" | "organization" | "country" });
+  const ws = useWorkspace();
+  useEffect(() => { if (ws.data) setD(x => ({ ...x, visibility: ws.data.default_case_visibility })); }, [ws.data]);
   const [files, setFiles] = useState<Pending[]>([]);
   const [pastes, setPastes] = useState<Paste[]>([]);
   const [types, setTypes] = useState<Set<EntityType>>(new Set(TYPE_KEYS.filter(t => t !== "document")));

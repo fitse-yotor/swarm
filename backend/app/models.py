@@ -42,6 +42,33 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class Role(Base):
+    """A named permission set inside a tenant. Users reference it by name (User.role).
+
+    Built-in roles are seeded from core.security.ROLES; their permissions can be edited (except
+    Administrator, which always holds every permission) but they cannot be renamed or deleted.
+    """
+    __tablename__ = "roles"
+    __table_args__ = (UniqueConstraint("tenant_id", "name"),)
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("r"))
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    name: Mapped[str] = mapped_column(String(40))
+    description: Mapped[str] = mapped_column(Text, default="")
+    permissions: Mapped[list] = mapped_column(JSON, default=list)
+    builtin: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class TenantSettings(Base):
+    """Workspace settings edited in Administration (a separate table so create_all can add it)."""
+    __tablename__ = "tenant_settings"
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), primary_key=True)
+    data: Mapped[dict] = mapped_column(JSON, default=dict)
+    updated_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
 class Case(Base):
     __tablename__ = "cases"
     id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("c"))

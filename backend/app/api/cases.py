@@ -6,7 +6,7 @@ from app.core.db import get_db
 from app.core.deps import audit, current_user, get_case, has_perm, require
 from app.models import AuditEvent, Case, GraphVersion, ProcessingJob, SourceDocument, User
 from app.schemas import AuditOut, CaseIn, CaseOut, CasePatch
-from app.services import graph_store
+from app.services import graph_store, workspace
 
 router = APIRouter(tags=["cases"])
 
@@ -42,7 +42,7 @@ def list_cases(status: str | None = None, q: str | None = None, db: Session = De
 def create_case(body: CaseIn, db: Session = Depends(get_db), user: User = Depends(require("case.create"))):
     c = Case(tenant_id=user.tenant_id, owner_id=user.id, title=body.title.strip(), description=body.description.strip(),
              research_question=body.research_question.strip(), objective=body.objective.strip(),
-             scope_type=body.scope_type, tags=[t.strip() for t in body.tags if t.strip()], visibility=body.visibility,
+             scope_type=body.scope_type, tags=[t.strip() for t in body.tags if t.strip()], visibility=body.visibility or workspace.get_settings(db, user.tenant_id)["default_case_visibility"],
              extract_types=list(body.extract_types))
     db.add(c)
     db.flush()

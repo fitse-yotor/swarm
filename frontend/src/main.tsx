@@ -19,6 +19,7 @@ import Environments from "./pages/Environments";
 import Simulations from "./pages/Simulations";
 import Reports from "./pages/Reports";
 import Interaction from "./pages/Interaction";
+import Admin from "./pages/Admin";
 import { load } from "./prefs";
 import "./styles.css";
 
@@ -49,6 +50,8 @@ function Gate() {
         <Route path="cases/:caseId/reports/:repId" element={<Reports />} />
         <Route path="cases/:caseId/interaction" element={<Interaction />} />
         <Route path="cases/:caseId/interaction/:convId" element={<Interaction />} />
+        <Route path="admin" element={<Admin />} />
+        <Route path="admin/:tab" element={<Admin />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

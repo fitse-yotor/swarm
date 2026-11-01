@@ -4,15 +4,16 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.core.deps import audit, current_user
-from app.core.security import ROLES, create_token, verify_password
+from app.core.security import create_token, verify_password
 from app.models import User
 from app.schemas import LoginIn, TokenOut, UserOut
+from app.services import workspace
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 def user_out(u: User) -> UserOut:
-    return UserOut(id=u.id, name=u.name, email=u.email, role=u.role, status=u.status, permissions=ROLES.get(u.role, []))
+    return UserOut(id=u.id, name=u.name, email=u.email, role=u.role, status=u.status, permissions=workspace.permissions_of(u))
 
 
 @router.post("/login", response_model=TokenOut)
@@ -24,7 +25,8 @@ def login(body: LoginIn, db: Session = Depends(get_db)):
         raise HTTPException(403, "This account is suspended — contact an administrator")
     audit(db, u, "auth.login", u.email)
     db.commit()
-    return TokenOut(access_token=create_token(u.id, u.tenant_id), user=user_out(u))
+    hours = workspace.get_settings(db, u.tenant_id)["session_hours"]
+    return TokenOut(access_token=create_token(u.id, u.tenant_id, hours * 60), user=user_out(u))
 
 
 @router.get("/me", response_model=UserOut)

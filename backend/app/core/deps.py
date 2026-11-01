@@ -6,8 +6,9 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
-from app.core.security import ROLES, decode_token
+from app.core.security import decode_token
 from app.models import AuditEvent, Case, User
+from app.services.workspace import permissions_of
 
 bearer = HTTPBearer(auto_error=False)
 
@@ -26,7 +27,7 @@ def current_user(creds: HTTPAuthorizationCredentials | None = Depends(bearer), d
 
 
 def has_perm(user: User, perm: str) -> bool:
-    return perm in ROLES.get(user.role, [])
+    return perm in permissions_of(user)
 
 
 def require(perm: str) -> Callable[..., User]:

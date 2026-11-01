@@ -5,6 +5,7 @@ import { BookOpen, FileText, Folder, Inbox, Layers, LayoutDashboard, LogOut, Mes
   Sun } from "lucide-react";
 import { api, type Case } from "../api";
 import { useAuth } from "../auth";
+import { useWorkspace } from "../hooks";
 import { load, store } from "../prefs";
 import { Avatar } from "./ui";
 
@@ -23,7 +24,7 @@ export const useLastCase = () => {
 
 const TITLES: [RegExp, string][] = [[/\/graph$/, "Graph explorer"], [/\/review$/, "Review queue"], [/\/documents$/, "Documents"],
   [/\/build\//, "Graph build"], [/\/environments/, "Environments"], [/\/simulations/, "Simulations"], [/\/reports/, "Reports"],
-  [/\/interaction/, "Conversations"], [/^\/cases\/new/, "Create case"], [/^\/cases\/[^/]+$/, "Case"], [/^\/cases$/, "Cases"], [/^\/$/, "Dashboard"]];
+  [/\/interaction/, "Conversations"], [/^\/cases\/new/, "Create case"], [/^\/cases\/[^/]+$/, "Case"], [/^\/cases$/, "Cases"], [/^\/$/, "Dashboard"], [/^\/admin/, "Administration"]];
 
 type Tip = { label: string; desc: string; top: number } | null;
 
@@ -37,6 +38,8 @@ export default function Shell() {
   const routeCase = useMatch("/cases/:caseId/*");
   const caseId = routeCase?.params.caseId && routeCase.params.caseId !== "new" && routeCase.params.caseId !== "wizard" ? routeCase.params.caseId : null;
   const cases = useQuery({ queryKey: ["cases"], queryFn: () => api.get<Case[]>("/cases") });
+  const ws = useWorkspace();
+  const wsName = ws.data?.name ?? "Workspace";
   const current = cases.data?.find(c => c.id === caseId);
   const scoped = /^\/cases\/(?!new)[^/]+/.test(loc.pathname);
 
@@ -61,7 +64,7 @@ export default function Shell() {
   return (
     <div className="shell collapsed">
       <aside className="side rail" aria-label="Primary">
-        <div className="brand" {...tipFor("Lattice", "Case intelligence · Northbridge Institute workspace")} tabIndex={0}><Logo /></div>
+        <div className="brand" {...tipFor("Lattice", `Case intelligence · ${wsName}`)} tabIndex={0}><Logo /></div>
         <nav className="nav">
           <NavLink to="/" end {...tipFor("Dashboard", "Workspace overview: metrics, workflow progress and recent activity")}><LayoutDashboard /></NavLink>
           <NavLink to="/cases" end {...tipFor("Cases", "All cases: search, filter, archive and restore")}><Folder /></NavLink>
@@ -75,7 +78,7 @@ export default function Shell() {
           <NavLink to={caseLink("simulations")} {...tipFor("Simulations", `Stage 3 · Run the two-platform simulation and watch opinions shift.${needCase}`)}><Play /></NavLink>
           <NavLink to={caseLink("reports")} {...tipFor("Reports", `Stage 4 · Findings from a run with source evidence; edit, approve, export.${needCase}`)}><FileText /></NavLink>
           <NavLink to={caseLink("interaction")} {...tipFor("Conversations", `Stage 5 · Chat with the report agent, a simulated agent or the graph.${needCase}`)}><MessageSquare /></NavLink></>}
-          {can("admin.access") && <><hr /><a aria-disabled="true" tabIndex={0} style={{ opacity: .45, cursor: "default" }} {...tipFor("Administration", "Users, roles and settings — not built yet")}><Shield /></a></>}
+          {can("admin.access") && <><hr /><NavLink to="/admin" {...tipFor("Administration", "Users, roles and workspace settings")}><Shield /></NavLink></>}
         </nav>
         <div className="side-foot">
           <button className="btn ghost icon sm" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} {...tipFor("Theme", `Switch to ${theme === "dark" ? "light" : "dark"} mode`)}>{theme === "dark" ? <Sun /> : <Moon />}</button>
@@ -86,7 +89,7 @@ export default function Shell() {
       {tip && <div className="rail-tip" role="tooltip" style={{ top: tip.top }}><b>{tip.label}</b><span>{tip.desc}</span></div>}
       <div className="main">
         <header className="top">
-          <div className="crumbs"><NavLink to="/" className="muted">Northbridge</NavLink>
+          <div className="crumbs"><NavLink to="/" className="muted">{wsName}</NavLink>
             {scoped && current && <><span className="sep">/</span>
               <select className="sel" aria-label="Current case" value={current.id}
                 style={{ height: 28, width: "auto", maxWidth: 260, borderColor: "transparent", background: "transparent", fontWeight: 600, paddingLeft: 4 }}

@@ -77,6 +77,22 @@ hands over to the final graph.
 - **Trigger a persona** (simulation card *Trigger a persona*): make a synthetic persona post, comment, repost, like or dislike inside a finished run, optionally letting the others react (rule-based by stance closeness). Events are labelled `analyst-trigger` / `reaction-model`.
 - **Reports** list every persona's actions (posts, comments, reposts, likes) and the reactions under the most-engaged posts.
 
+## Administration
+
+Users with the `admin.access` permission (the Administrator role) get a shield icon in the sidebar that opens `/admin`:
+
+- **Users:** add users (with a password you choose or a generated temporary one shown once), edit name, email and role,
+  suspend or reactivate, reset passwords, and delete accounts that own no cases (suspend those instead).
+- **Roles:** the five built-in roles plus custom ones, as a permission matrix. Built-in roles keep their names; the
+  Administrator role always holds every permission. A role in use cannot be deleted; renaming a role moves its users with it.
+- **Settings:** workspace name, default case visibility, session length, minimum password length, and the defaults new
+  environments start from (rounds, LLM personas and posts per round, real actors context-only). Model and storage details are
+  shown read-only.
+
+The API refuses changes that would leave the workspace without an active administrator, and administrators cannot suspend,
+delete or demote themselves. Every change is written to the audit log (`admin.*` actions). Roles and settings live in the new
+`roles` and `tenant_settings` tables, created at API start; an existing workspace gets the built-in roles on first use.
+
 ## Run it locally
 
 ```bash
@@ -107,7 +123,7 @@ In containers: `docker compose up --build`. The API and worker reach Ollama on t
 
 ## Tests
 ```bash
-cd backend && EMBEDDING_PROVIDER=hash .venv/bin/python -m pytest      # parsing, chunking, quotes, resolution, uploads, spaCy relations, simulation determinism, GraphRAG citation checks
+cd backend && EMBEDDING_PROVIDER=hash .venv/bin/python -m pytest      # parsing, chunking, quotes, resolution, uploads, spaCy relations, simulation determinism, GraphRAG citation checks; admin API tests need PostgreSQL
 cd frontend && npm run typecheck && npm run build
 ```
 

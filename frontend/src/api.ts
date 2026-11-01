@@ -207,3 +207,18 @@ export const api = {
   del: (p: string) => request<void>("DELETE", p),
   upload: <T,>(p: string, files: File[]) => { const f = new FormData(); files.forEach(x => f.append("files", x)); return request<T>("POST", p, f); },
 };
+
+// ----- Administration
+export interface AdminUser extends User { created_at: string; case_count: number; last_login_at: string | null }
+export interface Role {
+  id: string; name: string; description: string; builtin: boolean; locked: boolean; permissions: string[];
+  user_count: number; updated_at: string;
+}
+export interface Permission { id: string; label: string }
+export interface WorkspaceSettings {
+  workspace_name: string; default_case_visibility: "Private" | "Team" | "Organization"; session_hours: number;
+  password_min_length: number; sim_rounds: number; sim_llm_personas: number; sim_llm_posts_per_round: number;
+  sim_real_actors_context_only: boolean;
+  system: { llm: SystemStatus["llm"]; extractor: string; embedder: string; max_upload_mb: number; storage: string; jwt_secret_is_default: boolean };
+}
+export interface Workspace { name: string; default_case_visibility: WorkspaceSettings["default_case_visibility"] }
