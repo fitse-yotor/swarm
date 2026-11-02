@@ -1,13 +1,13 @@
 import { useEffect, useState, type ChangeEvent, type ReactNode } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Copy, KeyRound, Lock, Pencil, Plus, Shield, Trash2, UserPlus, Users } from "lucide-react";
-import { api, type AdminUser, type Permission, type Role, type WorkspaceSettings } from "../api";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Activity, AlertTriangle, Copy, KeyRound, Lock, Pencil, Plus, RefreshCw, Shield, Trash2, UserPlus, Users } from "lucide-react";
+import { api, type AdminUser, type AuditEntry, type AuditPage, type Permission, type Role, type ServiceName, type WorkspaceSettings } from "../api";
 import { useAuth } from "../auth";
 import { Avatar, Empty, Modal, Spinner, useToast } from "../components/ui";
-import { ago } from "../vocab";
+import { ago, fmtDate } from "../vocab";
 
-const TABS = [["users", "Users"], ["roles", "Roles"], ["settings", "Settings"]] as const;
+const TABS = [["users", "Users"], ["roles", "Roles"], ["activity", "Activity"], ["settings", "Settings"]] as const;
 type Tab = typeof TABS[number][0];
 
 const Field = ({ label, hint, htmlFor, children }: { label: string; hint?: ReactNode; htmlFor?: string; children: ReactNode }) =>
@@ -20,10 +20,12 @@ const StatusPill = ({ status }: { status: string }) =>
 function useAdminMutation<A, R>(fn: (a: A) => Promise<R>, ok?: string | ((r: R, a: A) => string)) {
   const qc = useQueryClient();
   const toast = useToast();
+  const { refresh } = useAuth();
   return useMutation({
     mutationFn: fn,
     onSuccess: (r, a) => {
-      ["admin-users", "admin-roles", "admin-settings", "workspace"].forEach(k => qc.invalidateQueries({ queryKey: [k] }));
+      ["admin-users", "admin-roles", "admin-settings", "admin-audit", "workspace"].forEach(k => qc.invalidateQueries({ queryKey: [k] }));
+      refresh().catch(() => undefined);  // your own role or permissions may have changed
       if (ok) toast(typeof ok === "string" ? ok : ok(r, a), "ok");
     },
     onError: e => toast((e as Error).message, "err"),
@@ -43,6 +45,7 @@ export default function Admin() {
       <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "on" : ""} onClick={() => nav(k === "users" ? "/admin" : `/admin/${k}`)}>{l}</button>)}</div>
     {tab === "users" && <UsersTab />}
     {tab === "roles" && <RolesTab />}
+    {tab === "activity" && <ActivityTab />}
     {tab === "settings" && <SettingsTab />}
   </div>;
 }
@@ -68,23 +71,23 @@ function UsersTab() {
   const all = users.data ?? [];
   const list = all.filter(u => (f === "All" || u.status === f) && (!q || `${u.name} ${u.email} ${u.role}`.toLowerCase().includes(q.toLowerCase())));
   return <>
-    <div className="row wrap mb12">
+    <div className="toolbar mb12">
       <div className="seg" role="tablist" aria-label="Filter by status">{["All", "Active", "Suspended"].map(s =>
         <button key={s} className={f === s ? "on" : ""} onClick={() => setF(s)}>{s} <span className="dim">{s === "All" ? all.length : all.filter(u => u.status === s).length}</span></button>)}</div>
-      <input className="inp" style={{ maxWidth: 260, marginLeft: "auto" }} placeholder="Search name, email, role" value={q} onChange={e => setQ(e.target.value)} aria-label="Search users" />
+      <input className="inp tb-search" placeholder="Search name, email, role" value={q} onChange={e => setQ(e.target.value)} aria-label="Search users" />
       <button className="btn pri" onClick={() => setEditing("new")}><UserPlus />Add user</button>
     </div>
     <div className="panel" style={{ overflowX: "auto" }}>
       {users.isLoading ? <p className="panel-b muted">Loading…</p> : !list.length ? <Empty icon={<Users />} title="No users match" text="Clear the filter or add a user." /> :
-        <table className="tbl"><thead><tr><th>User</th><th>Role</th><th>Status</th><th className="hm">Cases</th><th className="hm">Last sign-in</th><th style={{ textAlign: "right" }}>Actions</th></tr></thead>
+        <table className="tbl stack"><thead><tr><th>User</th><th>Role</th><th>Status</th><th className="hm">Cases</th><th className="hm">Last sign-in</th><th style={{ textAlign: "right" }}>Actions</th></tr></thead>
           <tbody>{list.map(u => <tr key={u.id}>
-            <td><div className="row"><Avatar name={u.name} size={26} /><div style={{ minWidth: 0 }}><div style={{ fontWeight: 600 }}>{u.name}{u.id === me?.id && <span className="dim small"> · you</span>}</div>
+            <td className="cell-main"><div className="row"><Avatar name={u.name} size={26} /><div style={{ minWidth: 0 }}><div style={{ fontWeight: 600 }}>{u.name}{u.id === me?.id && <span className="dim small"> · you</span>}</div>
               <div className="xs dim trunc">{u.email}</div></div></div></td>
             <td><span className="badge">{u.role}</span></td>
             <td><StatusPill status={u.status} /></td>
             <td className="hm">{u.case_count}</td>
             <td className="hm small muted">{u.last_login_at ? ago(u.last_login_at) : "Never"}</td>
-            <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+            <td className="cell-acts">
               <button className="btn ghost sm icon" aria-label={`Edit ${u.name}`} title="Edit" onClick={() => setEditing(u)}><Pencil /></button>
               <button className="btn ghost sm icon" aria-label={`Reset password for ${u.name}`} title="Reset password" onClick={() => setResetting(u)}><KeyRound /></button>
               <button className="btn ghost sm" disabled={u.id === me?.id || toggle.isPending} onClick={() => toggle.mutate(u)}>{u.status === "Active" ? "Suspend" : "Reactivate"}</button>
@@ -159,7 +162,7 @@ function RolesTab() {
   if (roles.isLoading) return <p className="muted">Loading…</p>;
   const { roles: list = [], permissions = [] } = roles.data ?? {};
   return <>
-    <div className="row wrap mb12"><p className="small muted" style={{ maxWidth: "80ch", flex: 1 }}>A role is a set of permissions. Built-in roles can have their permissions changed but keep their names; the Administrator role always holds every permission.</p>
+    <div className="toolbar mb12"><p className="small muted" style={{ maxWidth: "80ch", flex: "1 1 260px" }}>A role is a set of permissions. Built-in roles can have their permissions changed but keep their names; the Administrator role always holds every permission.</p>
       <button className="btn pri" style={{ marginLeft: "auto" }} onClick={() => setEditing("new")}><Plus />New role</button></div>
     <div className="panel" style={{ overflowX: "auto" }}>
       <table className="tbl"><thead><tr><th>Role</th>{permissions.map(p => { const [g, a] = p.id.split(".");
@@ -208,7 +211,7 @@ function RoleModal({ role, permissions, onClose }: { role: Role | null; permissi
             <div className="col">{ps.map(p => <label key={p.id} className="chk"><input type="checkbox" checked={d.permissions.includes(p.id)} onChange={() => flip(p.id)} />
               <span>{p.label} <span className="xs dim mono">{p.id}</span></span></label>)}</div></fieldset> : null;
         })}</div></div>
-      {losingAdmin && <div className="demo-flag"><AlertTriangle />This is your own role. Removing administration access would lock you out of this page.</div>}
+      {losingAdmin && <div className="demo-flag"><AlertTriangle /><span>This is your own role. Removing administration access would lock you out of this page.</span></div>}
     </div>
   </Modal>;
 }
@@ -247,7 +250,7 @@ function SettingsTab() {
     <section className="panel"><div className="panel-h"><h3>Security</h3></div><div className="panel-b form-grid">
       <Field label="Session length (hours)" htmlFor="s-sess" hint="How long a sign-in lasts, 1–72. Applies to new sign-ins."><input id="s-sess" {...num("session_hours", 1, 72)} /></Field>
       <Field label="Minimum password length" htmlFor="s-pwlen" hint="For passwords an administrator sets, 8–64."><input id="s-pwlen" {...num("password_min_length", 8, 64)} /></Field>
-      {sys.jwt_secret_is_default && <div className="demo-flag" style={{ gridColumn: "1 / -1" }}><AlertTriangle />The server is using the default token secret. Set <code>JWT_SECRET</code> in <code>backend/.env</code> before sharing this instance.</div>}
+      {sys.jwt_secret_is_default && <div className="demo-flag" style={{ gridColumn: "1 / -1" }}><AlertTriangle /><span>The server's token secret is a placeholder or too short. Set a random <code>JWT_SECRET</code> of 32+ characters in <code>backend/.env</code> before sharing this instance.</span></div>}
     </div></section>
 
     <section className="panel"><div className="panel-h"><h3>New environment defaults</h3><span className="xs dim">Each environment can still change these.</span></div><div className="panel-b form-grid">
@@ -261,20 +264,92 @@ function SettingsTab() {
     </div></section>
 
     <section className="panel"><div className="panel-h"><h3>System</h3><span className="xs dim">Read only · set in <code>backend/.env</code></span></div><div className="panel-b">
-      <dl className="kv" style={{ gridTemplateColumns: "160px 1fr" }}>
+      <ul className="svc-list" aria-label="Service health">{(Object.keys(SERVICE_LABEL) as ServiceName[]).map(k => {
+        const v = sys.services[k];
+        return <li key={k}><span className={`dstat ${v.ok ? "ok" : v.optional ? "run" : "err"}`}><i /></span>
+          <div className="grow" style={{ minWidth: 0 }}><b className="small">{SERVICE_LABEL[k]}</b><div className="xs dim" style={{ overflowWrap: "anywhere" }}>{v.detail || (v.ok ? "OK" : "Not reachable")}</div></div>
+          {v.ms != null && <span className="xs dim mono">{v.ms} ms</span>}</li>;
+      })}</ul>
+      <div className="row mb12"><span className="xs dim grow">Checked every 15 s.</span><button className="btn ghost sm" onClick={() => s.refetch()} disabled={s.isFetching}><RefreshCw />Check again</button></div>
+      <dl className="kv kv-wide">
         <dt>Language model</dt><dd><span className={`dstat ${sys.llm.available ? "ok" : "err"}`}><i />{sys.llm.provider === "none" ? "Disabled" : `${sys.llm.model} · ${sys.llm.available ? "available" : "not reachable"}`}</span></dd>
         <dt>Ollama URL</dt><dd className="mono small">{sys.llm.url}</dd>
         <dt>Extraction</dt><dd>{sys.extractor}</dd>
         <dt>Embeddings</dt><dd>{sys.embedder}</dd>
         <dt>Upload limit</dt><dd>{sys.max_upload_mb} MB per file</dd>
         <dt>File storage</dt><dd>{sys.storage}</dd>
+        <dt>Demo sign-in list</dt><dd>{sys.demo_accounts ? <span className="badge b-warn"><i />shown · set DEMO_ACCOUNTS=false for shared use</span> : "hidden"}</dd>
       </dl></div></section>
 
-    <div className="row" style={{ position: "sticky", bottom: 0, padding: "10px 0", background: "var(--bg)" }}>
+    <div className="row savebar">
       <span className="small muted grow">{changed.length ? `${changed.length} unsaved change${changed.length > 1 ? "s" : ""}` : "All changes saved"}</span>
       <button className="btn" disabled={!changed.length} onClick={() => { const { system: _s, ...rest } = s.data!; setD(rest); }}>Discard</button>
       <button className="btn pri" disabled={!changed.length || d.workspace_name.trim().length < 2 || save.isPending}
         onClick={() => save.mutate(Object.fromEntries(changed.map(k => [k, d[k]])) as Partial<Editable>)}>{save.isPending && <Spinner />}<Shield />Save settings</button>
     </div>
   </div>;
+}
+
+const SERVICE_LABEL: Record<ServiceName, string> = { database: "Database (PostgreSQL)", graph: "Graph database (Neo4j)", jobs: "Job queue", llm: "Local language model (optional)" };
+
+// ------------------------------------------------------------------ activity
+const GROUP_LABEL: Record<string, string> = { auth: "Sign-ins", account: "Account", admin: "Administration", cases: "Cases", sources: "Sources",
+  graph: "Graph", workflow: "Simulation & reports" };
+
+function describe(e: AuditEntry): string {
+  const verb: Record<string, string> = {
+    "auth.login": "signed in", "account.update": "updated their profile", "account.password": "changed their password",
+    "admin.user.create": "added user", "admin.user.update": "changed user", "admin.user.password": "reset the password of",
+    "admin.user.delete": "deleted user", "admin.role.create": "created role", "admin.role.update": "changed role", "admin.role.delete": "deleted role",
+    "admin.settings.update": "changed workspace settings", "case.create": "created case", "case.update": "edited case", "case.archive": "archived case",
+    "case.restore": "restored case", "doc.upload": "uploaded", "doc.delete": "deleted source",
+    "graph.build.start": "started a graph build for", "graph.review": "reviewed", "graph.approve": "approved graph", "graph.draft": "opened a draft of",
+    "graph.export": "exported graph", "graphrag.query": "asked the graph:", "environment.create": "created environment",
+    "environment.edit": "edited environment", "environment.personas": "imported personas into", "environment.approve": "approved environment",
+    "environment.delete": "deleted environment", "simulation.start": "started simulation", "simulation.trigger": "triggered",
+    "simulation.delete": "deleted simulation", "report.create": "generated", "report.edit": "edited", "report.approve": "approved",
+  };
+  const v = verb[e.action];
+  if (!v) return `${e.action.replace(/[._]/g, " ")} · ${e.target}`;
+  return ["auth.login", "account.update", "account.password", "admin.settings.update"].includes(e.action) ? v : `${v} ${e.target}`;
+}
+
+function ActivityTab() {
+  const [group, setGroup] = useState("");
+  const [actor, setActor] = useState("");
+  const [q, setQ] = useState("");
+  const [query, setQuery] = useState("");
+  useEffect(() => { const t = setTimeout(() => setQuery(q.trim()), 300); return () => clearTimeout(t); }, [q]);
+  const params = (before: string) => new URLSearchParams({ limit: "40", ...(group && { group }), ...(actor && { actor }), ...(query && { q: query }), ...(before && { before }) }).toString();
+  const results = useInfiniteQuery({
+    queryKey: ["admin-audit", group, actor, query],
+    queryFn: ({ pageParam }) => api.get<AuditPage>(`/admin/audit?${params(pageParam)}`),
+    initialPageParam: "",
+    getNextPageParam: last => last.next ?? undefined,
+  });
+  const data = results.data?.pages ?? [];
+  const items = data.flatMap(p => p.items);
+  const actors = data[0]?.actors ?? [];
+  return <>
+    <div className="toolbar mb12">
+      <select className="sel tb-sel" aria-label="Kind of activity" value={group} onChange={e => setGroup(e.target.value)}>
+        <option value="">All activity</option>{Object.entries(GROUP_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+      <select className="sel tb-sel" aria-label="Person" value={actor} onChange={e => setActor(e.target.value)}>
+        <option value="">Everyone</option>{actors.map(a => <option key={a}>{a}</option>)}</select>
+      <input className="inp tb-search" placeholder="Search target, action or case" value={q} onChange={e => setQ(e.target.value)} aria-label="Search activity" />
+    </div>
+    <div className="panel">
+      {results.isLoading ? <p className="panel-b muted">Loading…</p> : !items.length ? <Empty icon={<Activity />} title="No activity matches" text="Change the filters to see more." /> :
+        <ul className="audit-list">{items.map(e => <li key={e.id}>
+          <Avatar name={e.actor} size={26} />
+          <div className="grow" style={{ minWidth: 0 }}>
+            <div className="small"><b>{e.actor}</b> {describe(e)}</div>
+            <div className="xs dim">{e.case_title && <>{e.case_title} · </>}<span className="mono">{e.action}</span></div>
+          </div>
+          <time className="xs dim" dateTime={e.at} title={fmtDate(e.at)}>{ago(e.at)}</time>
+        </li>)}</ul>}
+    </div>
+    {results.hasNextPage && <div className="row mt8" style={{ justifyContent: "center" }}>
+      <button className="btn" disabled={results.isFetchingNextPage} onClick={() => results.fetchNextPage()}>{results.isFetchingNextPage && <Spinner />}Load older activity</button></div>}
+  </>;
 }

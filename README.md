@@ -85,13 +85,33 @@ Users with the `admin.access` permission (the Administrator role) get a shield i
   suspend or reactivate, reset passwords, and delete accounts that own no cases (suspend those instead).
 - **Roles:** the five built-in roles plus custom ones, as a permission matrix. Built-in roles keep their names; the
   Administrator role always holds every permission. A role in use cannot be deleted; renaming a role moves its users with it.
+- **Activity:** the workspace audit log, filterable by kind (sign-ins, administration, cases, graph, simulation and reports),
+  person and free text, with paging.
 - **Settings:** workspace name, default case visibility, session length, minimum password length, and the defaults new
-  environments start from (rounds, LLM personas and posts per round, real actors context-only). Model and storage details are
-  shown read-only.
+  environments start from (rounds, LLM personas and posts per round, real actors context-only). A System panel shows live health
+  for PostgreSQL, Neo4j, the job queue and the local LLM, plus model and storage details.
+
+Every user also has **My account** (`/account`, from the avatar): change display name and password, switch theme, sign out,
+and see recent sign-ins and account changes.
 
 The API refuses changes that would leave the workspace without an active administrator, and administrators cannot suspend,
 delete or demote themselves. Every change is written to the audit log (`admin.*` actions). Roles and settings live in the new
 `roles` and `tenant_settings` tables, created at API start; an existing workspace gets the built-in roles on first use.
+
+## Phones and tablets
+
+Below 720 px the sidebar becomes a bottom tab bar and the top bar shows the logo, the case switcher, the page title and your
+avatar (account, theme and sign-out live on `/account`). Tables that hold actions (such as users) turn into cards, metric strips
+and forms collapse to fewer columns, and stage pages (environments, simulations, reports) stack the canvas above the workbench.
+
+## When a service is down
+
+If Neo4j is unreachable, graph endpoints answer **503** with a readable message and the UI shows "Graph database unavailable"
+with a retry button instead of an error. Report chat still answers from the stored report. `GET /api/v1/system/status`
+includes up/down flags for each service; details are on the admin Settings page.
+
+The sign-in page lists the seeded demo accounts from the API (`GET /api/v1/auth/demo-accounts`) only while
+`DEMO_ACCOUNTS=true` (the default for local development). Set it to `false` on any shared instance.
 
 ## Run it locally
 

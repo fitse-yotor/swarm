@@ -7,7 +7,7 @@ import "@xyflow/react/dist/style.css";
 import { ArrowRight, Check, Copy, Layers, Plus, RefreshCw, Save, Trash2, Users } from "lucide-react";
 import { api, type Agent, type AgentLink, type EnvConfig, type Environment, type Graph, type Simulation } from "../api";
 import { useAuth } from "../auth";
-import { Empty, Modal, useToast } from "../components/ui";
+import { Empty, isUnavailable, Modal, useToast } from "../components/ui";
 import { StageLayout, StepCard, Stats, SysLog, jobState, stanceColor, stanceWord } from "../components/Stage";
 import { useEnvs, useJob, useTheme } from "../hooks";
 import { ago, initials } from "../vocab";
@@ -71,7 +71,7 @@ function NewEnvModal({ caseId, title, onClose }: { caseId: string; title: string
   };
   return <Modal title="New environment" sub={`Agents are generated from a graph version of “${title}”.`} onClose={onClose}
     footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn pri" disabled={busy || !f.name.trim() || !graph.data} onClick={submit}>{busy ? "Starting…" : "Generate environment"}</button></>}>
-    {graph.isError && <p className="small" style={{ color: "var(--err)" }}>This case has no graph yet — build one first.</p>}
+    {graph.isError && <p className="small" style={{ color: "var(--err)" }}>{isUnavailable(graph.error) ? (graph.error as Error).message : "This case has no graph yet — build one first."}</p>}
     <div className="col gap12">
       <div className="field"><label htmlFor="en">Name</label><input id="en" className="inp" value={f.name} onChange={e => setF({ ...f, name: e.target.value })} /></div>
       <div className="field"><label htmlFor="es">Scenario (what-if injected into the run)</label>

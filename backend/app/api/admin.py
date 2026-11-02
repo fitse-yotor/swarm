@@ -15,12 +15,13 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.config import jwt_secret_is_weak
 from app.core.config import settings as app_settings
 from app.core.db import get_db
 from app.core.deps import audit, current_user, require
 from app.core.security import PERMISSIONS, hash_password
 from app.models import AuditEvent, Case, Role, Tenant, User
-from app.services import embeddings, llm, workspace
+from app.services import embeddings, health, llm, workspace
 from app.services.extraction import get_extractor
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -320,7 +321,8 @@ def _settings_out(db: Session, tenant: Tenant) -> dict:
                                "url": app_settings.ollama_url},
                        "extractor": get_extractor().name, "embedder": embeddings.embedder_name(),
                        "max_upload_mb": app_settings.max_upload_mb, "storage": "local disk",
-                       "jwt_secret_is_default": app_settings.jwt_secret == "change-me-in-production"}}
+                       "jwt_secret_is_default": jwt_secret_is_weak(app_settings.jwt_secret),
+                       "demo_accounts": app_settings.demo_accounts, "services": health.services()}}
 
 
 @router.get("/settings")
@@ -340,6 +342,44 @@ def update_settings(body: SettingsIn, db: Session = Depends(get_db), admin: User
           fields=sorted([k for k, v in changes.items() if before.get(k) != v] + (["workspace_name"] if body.workspace_name else [])))
     db.commit()
     return _settings_out(db, tenant)
+
+
+# ----------------------------------------------------------------- activity
+AUDIT_GROUPS = {"auth": ["auth."], "account": ["account."], "admin": ["admin."], "cases": ["case."],
+                "sources": ["doc."], "graph": ["graph.", "graphrag."], "workflow": ["environment.", "simulation.", "report."]}
+
+
+@router.get("/audit")
+def activity(group: str | None = None, actor: str | None = None, q: str | None = None, before: str | None = None,
+             limit: int = 50, db: Session = Depends(get_db), admin: User = Depends(admin_only)):
+    """Workspace activity, newest first. Page with `before` = the `next` value of the previous page."""
+    from sqlalchemy import or_
+
+    stmt = select(AuditEvent, Case.title).outerjoin(Case, Case.id == AuditEvent.case_id).where(
+        AuditEvent.tenant_id == admin.tenant_id)
+    if group:
+        prefixes = AUDIT_GROUPS.get(group)
+        if prefixes is None:
+            raise HTTPException(422, f"Unknown group: {group}")
+        stmt = stmt.where(or_(*[AuditEvent.action.startswith(p) for p in prefixes]))
+    if actor:
+        stmt = stmt.where(AuditEvent.actor == actor)
+    if q:
+        like = f"%{q.lower()}%"
+        stmt = stmt.where(or_(func.lower(AuditEvent.target).like(like), func.lower(AuditEvent.action).like(like),
+                              func.lower(Case.title).like(like)))
+    if before:
+        cur = db.get(AuditEvent, before)
+        if cur is not None:
+            stmt = stmt.where(or_(AuditEvent.at < cur.at, (AuditEvent.at == cur.at) & (AuditEvent.id < cur.id)))
+    n = max(1, min(limit, 200))
+    rows = db.execute(stmt.order_by(AuditEvent.at.desc(), AuditEvent.id.desc()).limit(n + 1)).all()
+    items = [{"id": e.id, "at": e.at, "actor": e.actor, "action": e.action, "target": e.target, "case_id": e.case_id,
+              "case_title": title, "meta": e.meta or {}} for e, title in rows[:n]]
+    actors = [a for (a,) in db.execute(select(AuditEvent.actor).where(AuditEvent.tenant_id == admin.tenant_id)
+                                       .distinct().order_by(AuditEvent.actor))]
+    return {"items": items, "next": items[-1]["id"] if len(rows) > n else None, "actors": actors,
+            "groups": list(AUDIT_GROUPS)}
 
 
 # A small, non-admin view of the workspace for the app shell (name and defaults the UI needs).

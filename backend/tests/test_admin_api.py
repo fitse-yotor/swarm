@@ -166,3 +166,36 @@ def test_settings_apply_to_new_cases(ws):
     assert client.get("/api/v1/workspace", headers=h).json() == {"name": f"Renamed {tag}", "default_case_visibility": "Private"}
     c = client.post("/api/v1/cases", headers=h, json={"title": "Settings check"})
     assert c.status_code == 201 and c.json()["visibility"] == "Private"
+
+
+def test_account_self_service(ws):
+    client, login, emails, _ = ws
+    h = login("viewer")
+    assert client.patch("/api/v1/auth/me", headers=h, json={"name": "Renamed Viewer"}).json()["name"] == "Renamed Viewer"
+    bad = client.post("/api/v1/auth/me/password", headers=h, json={"current_password": "nope", "new_password": "long-enough-1"})
+    assert bad.status_code == 422
+    assert client.post("/api/v1/auth/me/password", headers=h, json={"current_password": PW, "new_password": "short"}).status_code == 422
+    assert client.post("/api/v1/auth/me/password", headers=h, json={"current_password": PW, "new_password": "long-enough-1"}).status_code == 204
+    assert client.post("/api/v1/auth/login", json={"email": emails["viewer"], "password": "long-enough-1"}).status_code == 200
+    act = client.get("/api/v1/auth/me/activity", headers=h).json()
+    assert {"account.password", "account.update", "auth.login"} <= {e["action"] for e in act["events"]}
+
+
+def test_activity_log_filters_and_pages(ws):
+    client, login, emails, tag = ws
+    h = login("admin")
+    for i in range(3):
+        client.post("/api/v1/admin/roles", headers=h, json={"name": f"Temp {i}", "permissions": ["chat.use"]})
+    assert client.get("/api/v1/admin/audit", headers=login("analyst")).status_code == 403
+    page = client.get("/api/v1/admin/audit?group=admin&limit=2", headers=h).json()
+    assert len(page["items"]) == 2 and page["next"] and all(i["action"].startswith("admin.") for i in page["items"])
+    rest = client.get(f"/api/v1/admin/audit?group=admin&limit=2&before={page['next']}", headers=h).json()
+    assert rest["items"] and not {i["id"] for i in rest["items"]} & {i["id"] for i in page["items"]}
+    assert client.get("/api/v1/admin/audit?q=temp%202", headers=h).json()["items"][0]["target"] == "Temp 2"
+    assert client.get("/api/v1/admin/audit?group=nope", headers=h).status_code == 422
+
+
+def test_status_reports_services(ws):
+    client, login, *_ = ws
+    s = client.get("/api/v1/system/status").json()["services"]
+    assert s["database"]["ok"] is True and set(s) == {"database", "graph", "jobs", "llm"}

@@ -5,6 +5,8 @@ import { api, setUnauthorizedHandler, token, type User } from "./api";
 interface AuthState {
   user: User | null; loading: boolean;
   login: (email: string, password: string) => Promise<void>; logout: () => void; can: (perm: string) => boolean;
+  /** Re-read the signed-in user (after a profile or role change). */
+  refresh: () => Promise<void>;
 }
 const Ctx = createContext<AuthState>(null as unknown as AuthState);
 export const useAuth = () => useContext(Ctx);
@@ -26,6 +28,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     token.set(r.access_token);
     setUser(r.user);
   };
+  const refresh = useCallback(() => api.get<User>("/auth/me").then(setUser), []);
   const can = (p: string) => !!user?.permissions.includes(p);
-  return <Ctx.Provider value={{ user, loading, login, logout, can }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ user, loading, login, logout, can, refresh }}>{children}</Ctx.Provider>;
 }

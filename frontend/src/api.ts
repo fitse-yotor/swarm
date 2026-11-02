@@ -73,8 +73,11 @@ export interface RagAnswer {
   relationships: { edge_id: string; s: string; o: string; subject: string; type: string; object: string; status: string; confidence: number }[];
 }
 
+export interface ServiceCheck { ok: boolean; detail?: string; ms?: number; optional?: boolean }
+export type ServiceName = "database" | "graph" | "jobs" | "llm";
 export interface SystemStatus {
   llm: { provider: string; model: string; available: boolean; url: string }; extractor: string; embedder: string;
+  services?: Record<ServiceName, ServiceCheck>;
 }
 
 export interface Agent {
@@ -219,6 +222,11 @@ export interface WorkspaceSettings {
   workspace_name: string; default_case_visibility: "Private" | "Team" | "Organization"; session_hours: number;
   password_min_length: number; sim_rounds: number; sim_llm_personas: number; sim_llm_posts_per_round: number;
   sim_real_actors_context_only: boolean;
-  system: { llm: SystemStatus["llm"]; extractor: string; embedder: string; max_upload_mb: number; storage: string; jwt_secret_is_default: boolean };
+  system: { llm: SystemStatus["llm"]; extractor: string; embedder: string; max_upload_mb: number; storage: string; jwt_secret_is_default: boolean;
+    demo_accounts: boolean; services: Record<ServiceName, ServiceCheck> };
 }
 export interface Workspace { name: string; default_case_visibility: WorkspaceSettings["default_case_visibility"] }
+export interface AuditEntry { id: string; at: string; actor: string; action: string; target: string; case_id: string | null; case_title: string | null; meta: Record<string, unknown> }
+export interface AuditPage { items: AuditEntry[]; next: string | null; actors: string[]; groups: string[] }
+export interface DemoAccount { name: string; email: string; role: string }
+export interface AccountActivity { workspace: string; created_at: string; session_hours: number; events: { id: string; action: string; actor: string; at: string }[] }

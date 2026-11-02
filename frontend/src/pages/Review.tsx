@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Check, Inbox, Merge, Share2, X } from "lucide-react";
 import { api, type GEdge, type GNode, type HistoryItem } from "../api";
 import { useAuth } from "../auth";
-import { ConfBar, EtypeTag, Empty, ShapeIcon, useToast } from "../components/ui";
+import { ConfBar, EtypeTag, Empty, isUnavailable, ShapeIcon, Unavailable, useToast } from "../components/ui";
 import { ago } from "../vocab";
 import { useCase } from "./CaseDetail";
 import { SourceDrawer, type Highlight } from "./Documents";
@@ -35,6 +35,7 @@ export default function Review() {
     try { await fn(); await qc.invalidateQueries({ queryKey: ["graph", caseId] }); qc.invalidateQueries({ queryKey: ["history", caseId] }); toast(ok, "ok"); } catch (e) { toast((e as Error).message, "err"); }
   }, [qc, caseId, toast]);
 
+  if (graph.isError && isUnavailable(graph.error)) return <div className="page"><Unavailable error={graph.error} onRetry={() => graph.refetch()} retrying={graph.isFetching} /></div>;
   if (graph.isError) return <div className="page"><Empty icon={<Inbox />} title="Nothing to review" text="This case has no graph yet." /></div>;
   if (!g) return <div className="center-fill">Loading…</div>;
   const ed = g.editable, vurl = `/cases/${caseId}/graph/versions/${g.version.id}`;
