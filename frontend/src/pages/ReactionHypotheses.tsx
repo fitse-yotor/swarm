@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Check, CircleSlash, Eye, FlaskConical, Network, Pencil, RefreshCw, Sparkles, Undo2 } from "lucide-react";
-import { api, type Reaction, type ReactionCategory, type ReactionDetail, type ReactionPage, type ReactionRun, type ReactionStatus } from "../api";
+import { api, type Reaction, type ReactionCategory, type ReactionDetail, type ReactionPage, type ReactionRun, type ReactionStatus, type Version } from "../api";
 import { useAuth } from "../auth";
 import { ConfBar, Drawer, Empty, EtypeTag, Modal, Spinner, useToast } from "../components/ui";
 import { ago } from "../vocab";
@@ -36,6 +36,9 @@ export default function ReactionHypotheses() {
 
   const runs = useQuery({ queryKey: ["rx-runs", caseId], queryFn: () => api.get<ReactionRun[]>(`/cases/${caseId}/reaction-runs`),
     refetchInterval: q2 => ((q2.state.data ?? []).some(r => r.status === "generating") ? 1500 : false) });
+  const versions = useQuery({ queryKey: ["versions", caseId], queryFn: () => api.get<Version[]>(`/cases/${caseId}/graph/versions`) });
+  const approved = (versions.data ?? []).filter(v => v.status === "approved");
+  const noApproved = versions.isSuccess && approved.length === 0;  // reactions are generated only from an approved graph
   const run = (runs.data ?? []).find(r => r.id === runId) ?? (runs.data ?? []).find(r => r.status === "ready") ?? runs.data?.[0];
   const generating = (runs.data ?? []).find(r => r.status === "generating");
 
@@ -76,13 +79,16 @@ export default function ReactionHypotheses() {
 
   const head = <div className="page-head"><div className="grow"><h1>Reactions</h1>
     <p>Possible ways relevant actors might respond, generated from the approved research graph. They are hypotheses to test, never verified statements or real events.</p></div>
-    {editable && <button className="btn pri" disabled={!!generating || generate.isPending} onClick={() => generate.mutate()}>{generate.isPending ? <Spinner /> : <RefreshCw />}{runs.data?.length ? "Generate again" : "Generate reactions"}</button>}</div>;
+    {editable && <button className="btn pri" disabled={!!generating || generate.isPending || noApproved} title={noApproved ? "Approve the graph first" : undefined} onClick={() => generate.mutate()}>{generate.isPending ? <Spinner /> : <RefreshCw />}{runs.data?.length ? "Generate again" : "Generate reactions"}</button>}</div>;
 
   if (runs.isLoading) return <div className="page">{head}<p className="muted">Loading…</p></div>;
   if (runs.isError) return <div className="page">{head}<Empty icon={<AlertTriangle />} title="Could not load reactions" text={(runs.error as Error).message}><button className="btn" onClick={() => runs.refetch()}>Try again</button></Empty></div>;
 
   return <div className="page">
     {head}
+    {noApproved && <div className="banner err" role="alert"><AlertTriangle /><span className="grow"><b>This case has no approved graph yet.</b> Reactions are generated only from entities and relationships a person has approved.
+      Open the <b>Review queue</b>, approve what you trust, then press <b>Approve</b> on the graph. Reactions are then generated automatically.</span>
+      <Link className="btn sm" to={`/cases/${caseId}/review`}>Open the Review queue</Link><Link className="btn sm" to={`/cases/${caseId}/graph`}>Open the graph</Link></div>}
     <div className="banner warn" role="note"><FlaskConical /><span><b>{LABEL}.</b> Each card shows which graph relationships and source passages it relied on, and what is inferred or synthetic.</span></div>
 
     {generating && <div className="panel panel-b mb12" role="status"><div className="row"><Spinner /><b className="small">Generating run {generating.number}…</b>
@@ -90,8 +96,8 @@ export default function ReactionHypotheses() {
       <div className="prog mt8"><i style={{ width: `${generating.job?.progress ?? 5}%` }} /></div></div>}
     {run?.status === "failed" && <div className="banner err"><AlertTriangle /><span>Run {run.number} failed{run.job?.error ? `: ${run.job.error}` : ""}. {editable ? "Fix the cause and generate again." : ""}</span></div>}
 
-    {!runs.data?.length && !generating ? <Empty icon={<Sparkles />} title="No reactions yet" text="Reactions are generated automatically when a graph version is approved. You can also generate them from the latest approved version.">
-      {editable && <button className="btn pri" onClick={() => generate.mutate()}><RefreshCw />Generate reactions</button>}
+    {!runs.data?.length && !generating ? <Empty icon={<Sparkles />} title="No reactions yet" text={noApproved ? "Approve the graph first (see above). Reactions are generated automatically once a version is approved." : "Reactions are generated automatically when a graph version is approved. You can also generate them from the latest approved version."}>
+      {editable && !noApproved && <button className="btn pri" onClick={() => generate.mutate()}><RefreshCw />Generate reactions</button>}
       <Link className="btn" to={`/cases/${caseId}/graph`}><Network />Open the graph</Link></Empty> : run && <>
       <div className="panel panel-b mb12"><div className="row wrap" style={{ gap: 14 }}>
         <label className="row small" style={{ gap: 6 }}>Run <select className="sel" style={{ width: "auto" }} aria-label="Reaction run" value={run.id} onChange={e => setRunId(e.target.value)}>

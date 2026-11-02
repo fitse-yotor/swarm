@@ -220,9 +220,16 @@ def list_runs(case_id: str, db: Session = Depends(get_db), user: User = Depends(
 def start_run(case_id: str, body: ReactionRunIn, bg: BackgroundTasks, db: Session = Depends(get_db), user: User = Depends(require("graph.review"))):
     """Generate a new set of hypotheses from an approved graph version. Earlier runs are kept."""
     case = get_case(db, user, case_id)
-    v = db.get(GraphVersion, body.version_id) if body.version_id else dg.version_for(db, case.id)
-    if v is None or v.case_id != case.id:
-        raise HTTPException(404, "Graph version not found")
+    if body.version_id:
+        v = db.get(GraphVersion, body.version_id)
+        if v is None or v.case_id != case.id:
+            raise HTTPException(404, "That graph version does not exist in this case.")
+    else:
+        v = dg.version_for(db, case.id)
+        if v is None:
+            raise HTTPException(409, "This case has no approved graph yet. Reactions are generated only from approved entities and relationships, so "
+                                     "open the Review queue, approve the entities and relationships you trust, then press Approve on the graph. "
+                                     "Reactions are generated automatically after approval.")
     if v.status != "approved":
         raise HTTPException(409, f"{v.label} is not approved. Approve the graph first; reactions are generated only from approved entities and relationships.")
     busy = db.scalar(select(ReactionRun).where(ReactionRun.case_id == case.id, ReactionRun.status == "generating"))

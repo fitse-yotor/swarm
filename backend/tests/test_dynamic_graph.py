@@ -306,6 +306,23 @@ def test_rerun_adds_a_new_run_and_keeps_history_and_unapproved_graphs_are_refuse
 
 
 @db_only
+def test_generating_without_an_approved_graph_explains_what_to_do(world):
+    from app.core.db import SessionLocal
+    from app.models import GraphVersion
+    client, h, _, _, ids, _ = world
+    with SessionLocal() as db:  # a case whose graph has not been approved yet
+        db.get(GraphVersion, ids["version"]).status = "draft"
+        db.commit()
+    r = client.post(f"/api/v1/cases/{ids['case']}/reaction-runs", headers=h, json={})
+    assert r.status_code == 409  # a conflict with the case's state, not a missing resource
+    detail = r.json()["detail"]
+    assert "no approved graph" in detail and "Review queue" in detail and "Approve" in detail
+    assert "Graph version not found" not in detail
+    assert client.post(f"/api/v1/cases/{ids['case']}/reaction-runs", headers=h, json={"version_id": "gv_nope"}).status_code == 404
+    assert client.get(f"/api/v1/cases/{ids['case']}/reactions", headers=h).json()["total"] == 0  # and the page still loads normally
+
+
+@db_only
 def test_review_edit_select_exclude_and_filters(world):
     client, h, _, hv, ids, _ = world
     client.post(f"/api/v1/cases/{ids['case']}/reaction-runs", headers=h, json={})
