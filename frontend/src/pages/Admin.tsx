@@ -290,7 +290,7 @@ function SettingsTab() {
   </div>;
 }
 
-const SERVICE_LABEL: Record<ServiceName, string> = { database: "Database (PostgreSQL)", graph: "Graph database (Neo4j)", jobs: "Job queue", llm: "Local language model (optional)" };
+const SERVICE_LABEL: Record<ServiceName, string> = { database: "Database (PostgreSQL)", graph: "Graph database (Neo4j)", jobs: "Job queue", embeddings: "Embedding model (search)", llm: "Local language model (optional)" };
 
 // ------------------------------------------------------------------ activity
 const GROUP_LABEL: Record<string, string> = { auth: "Sign-ins", account: "Account", admin: "Administration", cases: "Cases", sources: "Sources",

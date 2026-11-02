@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.core.db import Base, engine
 from app.services import embeddings, llm
 from app.services import health as service_health
+from app.services.embeddings import EmbeddingUnavailable
 from app.services.extraction import get_extractor
 from app.services.ontology import ENTITY_TYPES, RELATION_TYPES
 
@@ -36,6 +37,13 @@ def graph_unavailable(_request: Request, _exc: Exception) -> JSONResponse:
     return JSONResponse(status_code=503, content={
         "detail": "The graph database is not reachable right now, so graph data cannot be loaded. "
                   "Everything else keeps working; try again once Neo4j is running."})
+
+
+@app.exception_handler(EmbeddingUnavailable)
+def embeddings_unavailable(_request: Request, exc: EmbeddingUnavailable) -> JSONResponse:
+    """The embedding model cannot load (usually the first-use download): say so and how to fix it, not a bare 500."""
+    logging.getLogger("app").warning("Embedding model unavailable: %s", exc)
+    return JSONResponse(status_code=503, content={"detail": str(exc)})
 
 
 @app.get(f"{settings.api_prefix}/health")

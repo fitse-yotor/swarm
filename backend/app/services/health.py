@@ -57,6 +57,15 @@ def _queue() -> str:
     return f"{len(workers)} worker(s) online"
 
 
+def _embeddings() -> str:
+    from app.services import embeddings
+
+    st = embeddings.status()
+    if not st["ok"]:
+        raise RuntimeError(st["detail"])
+    return st["detail"]
+
+
 def _llm() -> str:
     if settings.llm_provider == "none":
         return "disabled"
@@ -68,7 +77,7 @@ def _llm() -> str:
 def services(force: bool = False) -> dict:
     if not force and _cache["value"] is not None and time.monotonic() - _cache["at"] < TTL:
         return _cache["value"]
-    value = {"database": _check(_postgres), "graph": _check(_neo4j), "jobs": _check(_queue), "llm": _check(_llm)}
+    value = {"database": _check(_postgres), "graph": _check(_neo4j), "jobs": _check(_queue), "embeddings": _check(_embeddings), "llm": _check(_llm)}
     value["llm"]["optional"] = True  # everything degrades to templates without it
     _cache.update(at=time.monotonic(), value=value)
     return value

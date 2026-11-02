@@ -517,3 +517,29 @@ def test_other_tenants_cannot_see_reactions_snapshots_or_the_graph(world):
     assert client.post(f"/api/v1/cases/{ids['case']}/snapshots", headers=other, json={}).status_code == 404
     assert client.post(f"/api/v1/cases/{ids['case']}/reaction-runs", headers=other, json={}).status_code == 404
     assert client.get(f"/api/v1/cases/{ids['case']}/dynamic-graph").status_code == 401
+
+
+# ---------------------------------------------------------------- chat when the embedding model cannot load
+@db_only
+def test_graph_chat_explains_a_missing_embedding_model_and_other_chats_still_work(world, monkeypatch):
+    from app.services import embeddings, interaction
+    client, h, _, _, ids, new_sim = world
+    sid, _ = run_sim(new_sim)
+
+    def broken():
+        raise OSError("no network for the first-use download")
+    monkeypatch.setattr(settings, "embedding_provider", "fastembed")
+    monkeypatch.setattr(embeddings, "_fastembed", broken)
+    monkeypatch.setattr(interaction.llm, "available", lambda: False)  # offline answers: no model server needed for this test
+    conv = client.post(f"/api/v1/cases/{ids['case']}/conversations", headers=h, json={"target": "graph"}).json()
+    r = client.post(f"/api/v1/conversations/{conv['id']}/messages", headers=h, json={"content": "Who opposes the protocol?"})
+    assert r.status_code == 503  # not a bare 500
+    detail = r.json()["detail"]
+    assert "embedding model" in detail and "EMBEDDING_PROVIDER=hash" in detail and "first" in detail
+    assert embeddings.status()["ok"] is False and "failed to load" in embeddings.status()["detail"]
+    st = client.get("/api/v1/admin/settings", headers=h)  # the System panel reports it too (admin only; the lead analyst is not one)
+    assert st.status_code == 403
+    agent = client.post(f"/api/v1/cases/{ids['case']}/conversations", headers=h, json={"target": "agent:ag0", "simulation_id": sid}).json()
+    ok = client.post(f"/api/v1/conversations/{agent['id']}/messages", headers=h, json={"content": "What is your position?"})
+    assert ok.status_code == 200 and "offline answer" in ok.text  # agent chat does not need embeddings and still answers
+    embeddings._state.update(loaded=False, error=None)  # do not leak the simulated failure into other tests

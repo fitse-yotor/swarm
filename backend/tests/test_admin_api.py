@@ -198,4 +198,4 @@ def test_activity_log_filters_and_pages(ws):
 def test_status_reports_services(ws):
     client, login, *_ = ws
     s = client.get("/api/v1/system/status").json()["services"]
-    assert s["database"]["ok"] is True and set(s) == {"database", "graph", "jobs", "llm"}
+    assert s["database"]["ok"] is True and set(s) == {"database", "graph", "jobs", "embeddings", "llm"}

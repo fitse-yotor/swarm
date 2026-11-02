@@ -75,7 +75,7 @@ export interface RagAnswer {
 }
 
 export interface ServiceCheck { ok: boolean; detail?: string; ms?: number; optional?: boolean }
-export type ServiceName = "database" | "graph" | "jobs" | "llm";
+export type ServiceName = "database" | "graph" | "jobs" | "embeddings" | "llm";
 export interface SystemStatus {
   llm: { provider: string; model: string; available: boolean; url: string }; extractor: string; embedder: string;
   services?: Record<ServiceName, ServiceCheck>;

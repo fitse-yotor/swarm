@@ -68,7 +68,6 @@ function ConversationView({ caseId, convId, status, caseStage }: { caseId: strin
   const { can } = useAuth();
   const nav = useNavigate();
   const qc = useQueryClient();
-  const toast = useToast();
   const conv = useQuery({ queryKey: ["conv", convId], queryFn: () => api.get<Conversation>(`/conversations/${convId}`) });
   const cv = conv.data;
   const [kind, ref] = (cv?.target ?? ":").split(":");
@@ -79,15 +78,16 @@ function ConversationView({ caseId, convId, status, caseStage }: { caseId: strin
   useEffect(() => { if (cv?.messages && !busy) setMsgs(cv.messages); }, [cv?.messages, busy]);
   useEffect(() => { bottom.current?.scrollIntoView({ block: "end" }); }, [msgs]);
 
-  const send = async () => {
-    const q = input.trim();
+  const [failed, setFailed] = useState<{ msg: string; q: string } | null>(null);
+  const send = async (again?: string) => {
+    const q = (again ?? input).trim();
     if (!q || busy) return;
-    setInput(""); setBusy(true);
+    setInput(""); setFailed(null); setBusy(true);
     const now = new Date().toISOString();
     setMsgs(m => [...m, { role: "user", content: q, at: now }, { role: "assistant", content: "", at: now }]);
     try {
       await streamText(`/conversations/${convId}/messages`, { content: q }, text => setMsgs(m => [...m.slice(0, -1), { ...m[m.length - 1], content: text }]));
-    } catch (e) { toast((e as Error).message, "err"); }
+    } catch (e) { setFailed({ msg: (e as Error).message, q }); }  // stays on screen with a Retry button, unlike a toast
     setBusy(false);
     qc.invalidateQueries({ queryKey: ["conv", convId] }); qc.invalidateQueries({ queryKey: ["convs", caseId] });
   };
@@ -104,14 +104,16 @@ function ConversationView({ caseId, convId, status, caseStage }: { caseId: strin
         {suggestions.map(s => <button key={s} className="target" onClick={() => setInput(s)}><MessageSquare />{s}</button>)}</div>}
       {msgs.map((m, i) => <div key={i} className={`msg ${m.role}`}>
         {m.role === "assistant" ? <><div className="who"><Bot size={12} />{who}{m.model && <span className={`gen ${m.model.startsWith("ollama") ? "llm" : ""}`}>{m.model}</span>}</div>
-          {m.content ? <Markdown text={m.content} /> : <span className="spinner" />}</> : m.content}
+          {m.content ? <Markdown text={m.content} /> : <Waiting />}</> : m.content}
       </div>)}
       <div ref={bottom} />
     </div>
+    {failed && <div className="banner err" role="alert" style={{ margin: "0 12px 8px" }}><span className="grow"><b>The reply did not arrive.</b> {failed.msg}</span>
+      <button className="btn sm" onClick={() => send(failed.q)}>Try again</button><button className="btn ghost sm" onClick={() => setFailed(null)}>Dismiss</button></div>}
     <div className="chat-in">
       <textarea value={input} placeholder={can("chat.use") ? `Message ${who}… (Enter to send, Shift+Enter for a new line)` : "Your role cannot use conversations"} disabled={!can("chat.use")}
         onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} aria-label="Message" />
-      <div className="col"><button className="btn pri" disabled={busy || !input.trim()} onClick={send} aria-label="Send"><Send /></button>
+      <div className="col"><button className="btn pri" disabled={busy || !input.trim()} onClick={() => send()} aria-label="Send"><Send /></button>
         <button className="btn ghost" title="Delete conversation" aria-label="Delete conversation" onClick={() => { if (confirm("Delete this conversation?")) api.del(`/conversations/${convId}`).then(() => { qc.invalidateQueries({ queryKey: ["convs", caseId] }); nav(`/cases/${caseId}/interaction`); }); }}><Trash2 /></button></div>
     </div>
   </div>;
@@ -120,6 +122,13 @@ function ConversationView({ caseId, convId, status, caseStage }: { caseId: strin
     : <div className="doc" style={{ fontFamily: "var(--ui)" }}><h1 className="doc-title">Ask the graph</h1><p className="small muted mt8">Answers use GraphRAG: pgvector passage search plus the Neo4j neighborhood of matching entities. <Link to={`/cases/${caseId}/graph`}>Open the graph explorer</Link>.</p></div>;
   return <StageLayout step={5} caseId={caseId} status={status} leftLabel="Context" plainLeft caseStage={caseStage} left={left} right={chat}
     actions={<span className="small trunc"><User size={13} style={{ verticalAlign: -2 }} /> <b>{cv.title}</b></span>} />;
+}
+
+/** Shown while a reply has not started: a local model on a CPU can take a minute or more before the first word. */
+function Waiting() {
+  const [s, setS] = useState(0);
+  useEffect(() => { const t = setInterval(() => setS(x => x + 1), 1000); return () => clearInterval(t); }, []);
+  return <span className="row" style={{ gap: 8 }} role="status"><span className="spinner" /><span className="xs dim">Waiting for the model… {s}s{s >= 8 ? " — a local model on a CPU can take a minute or more before the first words." : ""}</span></span>;
 }
 
 function ReportContext({ repId }: { repId: string }) {
