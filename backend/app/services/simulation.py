@@ -17,7 +17,7 @@ import random
 import statistics
 
 from app.models import Environment, SimEvent, Simulation, new_id, utcnow
-from app.services import llm
+from app.services import behavior, llm
 from app.services.jobrunner import JobCtx
 
 ENGINE = "lattice-abm/1"
@@ -71,6 +71,8 @@ class Engine:
                 self.follows[link["o"]].add(link["s"])
         self.posts: list[SimEvent] = []
         self.by_id: dict[str, SimEvent] = {}
+        self.inbox: dict[str, list[SimEvent]] = {a: [] for a in self.agents}  # comments waiting for the post's author
+        self.depth: dict[str, int] = {}  # reply depth of a comment (a comment on a post is 1)
         self.received = {a: 0 for a in self.agents}
         self.llm_budget = self.cfg.get("llm_posts_per_round", 0) if llm.available() else 0
         self.llm_count = 0
@@ -147,6 +149,35 @@ class Engine:
             self.posts.append(ev)
         return ev
 
+    def note_reply(self, ev: SimEvent, target: SimEvent) -> None:
+        """A comment lands in the inbox of the author of what it answers (threads stop after a few turns)."""
+        owner = target.agent_id
+        if ev.action != "CREATE_COMMENT" or owner == ev.agent_id or owner not in self.speakers:
+            return
+        self.depth[ev.id] = self.depth.get(target.id, 0) + 1
+        if self.depth[ev.id] <= 3:
+            self.inbox[owner].append(ev)
+
+    def reply_back(self, a: dict, incoming: SimEvent, rnd: int) -> str | None:
+        """An agent answers a comment on its own post, as its behaviour profile decides. Returns the action taken."""
+        aid = a["id"]
+        d = behavior.decide_response(a, self.stance[aid], incoming.stance, self.cfg["epsilon"], self.rng)
+        if d["action"] is None:
+            return None
+        self.influence(aid, incoming, 0.6)
+        s = self.stance[aid]
+        if incoming.agent_id in self.received:
+            self.received[incoming.agent_id] += 1
+        if d["action"] == "LIKE_POST":
+            incoming.likes += 1
+            self.emit(rnd, incoming.platform, aid, a["name"], "LIKE_POST", target=incoming, stance=s, by="reply-back")
+            return "LIKE_POST"
+        incoming.replies += 1
+        ev = self.emit(rnd, incoming.platform, aid, a["name"], "CREATE_COMMENT", self.template_reply(a, incoming), target=incoming,
+                       stance=s, by="template · reply-back")
+        self.note_reply(ev, incoming)
+        return "CREATE_COMMENT"
+
     def round(self, rnd: int) -> dict:
         hour = (8 + rnd * self.cfg["minutes_per_round"] / 60) % 24
         counts = {a: 0 for a, _ in ACTIONS["microblog"] + ACTIONS["forum"]}
@@ -174,10 +205,16 @@ class Engine:
             active += 1
             platform = self.rng.choice([p for p in a.get("platforms", self.cfg["platforms"]) if p in self.cfg["platforms"]]
                                        or self.cfg["platforms"])
+            if self.inbox[aid]:  # someone commented on this agent's post: answer first, if its profile says so
+                done = self.reply_back(a, self.inbox[aid].pop(0), rnd)
+                if done:
+                    counts[done] += 1
+                    per_platform[platform] += 1
+                    continue
             seen = self.feed(aid, platform, rnd)
             for p in seen[:3]:
                 self.influence(aid, p, 0.35)
-            acts, weights = zip(*ACTIONS[platform], strict=True)
+            acts, weights = zip(*behavior.action_weights(a, platform), strict=True)
             action = self.rng.choices(acts, weights)[0]
             if not seen and action not in ("CREATE_POST", "FOLLOW"):
                 action = "CREATE_POST" if self.rng.random() < 0.5 else "DO_NOTHING"
@@ -226,8 +263,9 @@ class Engine:
                     if text:
                         llm_left, by, self.llm_count = llm_left - 1, llm.name(), self.llm_count + 1
                 target.replies += 1
-                self.emit(rnd, platform, aid, a["name"], action, text or self.template_reply(a, target), target=target,
-                          stance=s, by=by)
+                ev = self.emit(rnd, platform, aid, a["name"], action, text or self.template_reply(a, target), target=target,
+                               stance=s, by=by)
+                self.note_reply(ev, target)
         vals = [self.stance[a] for a in self.speakers]
         for aid in self.agents:
             self.series[aid].append(round(self.stance[aid], 3))

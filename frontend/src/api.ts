@@ -80,12 +80,16 @@ export interface SystemStatus {
   services?: Record<ServiceName, ServiceCheck>;
 }
 
+export interface Behavior { preset: string; mix: Record<string, number>; responsiveness: number; reply_style: string }
+export interface BehaviorPreset { id: string; label: string; desc: string; mix: Record<string, number>; responsiveness: number; reply_style: string }
+export interface BehaviorCatalogue { presets: BehaviorPreset[]; actions: string[]; reply_styles: string[] }
+
 export interface Agent {
   id: string; node_id: string; name: string; handle: string; kind: "individual" | "institution" | "state"; entity_type: EntityType;
   profession: string; interests: string[]; bio: string; persona: string; facts: string[]; stance: number;
   stance_source: "graph" | "allies" | "model" | "none"; influence: number; activity: number; tone: string; followers: number;
   platforms: string[]; generated_by: string; x: number; y: number;
-  synthetic?: boolean; speaks?: boolean; country?: string; viewpoint?: string; persona_id?: string;
+  synthetic?: boolean; speaks?: boolean; country?: string; viewpoint?: string; persona_id?: string; behavior?: Behavior;
 }
 export interface AgentLink { id: string; s: string; o: string; kind: "ally" | "opponent" | "contact" | "shared"; relation: string; weight: number }
 export interface EnvConfig {
@@ -134,12 +138,17 @@ export interface Conversation {
 }
 
 export interface ReactionGraph {
-  scope: "agents" | "post" | "agent"; events: number; roots?: string[];
+  scope: "agents" | "post" | "agent" | "run" | "thread"; events: number; roots?: string[]; focus?: string[];
   nodes: { id: string; name: string; type: "persona" | "actor" | "post" | "comment" | "repost"; stance?: number; synthetic?: boolean; round?: number;
-    platform?: string; likes?: number; reposts?: number; replies?: number; text?: string; author?: string; root?: boolean; generated_by?: string }[];
-  links: { source: string; target: string; type: string; count?: number }[];
+    platform?: string; likes?: number; reposts?: number; replies?: number; text?: string; author?: string; root?: boolean; generated_by?: string;
+    layer?: "base" | "interaction"; profile?: string; actions?: Record<string, number>; speaks?: boolean; lean?: "support" | "neutral" | "oppose" }[];
+  links: { source: string; target: string; type: string; count?: number; kind?: string; layer?: "base" | "interaction" }[];
 }
-export interface TriggerResult { events: SimEvent[]; target: { id: string; likes: number; reposts: number; replies: number } | null }
+export interface TriggerResponse {
+  agent_id: string; agent_name: string; profile: string; role: "author" | "bystander";
+  decision: "replied" | "liked" | "reposted" | "disliked" | "ignored"; reason: string; event_id: string | null;
+}
+export interface TriggerResult { events: SimEvent[]; target: { id: string; likes: number; reposts: number; replies: number } | null; responses?: TriggerResponse[] }
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }

@@ -41,3 +41,10 @@ export function ago(iso: string) {
 }
 export const initials = (n: string) => n.replace(/[^A-Za-z ]/g, "").split(" ").filter(Boolean).slice(0, 2).map(w => w[0]).join("").toUpperCase();
 export function avatarBg(n: string) { let h = 0; for (const c of n) h = (h * 31 + c.charCodeAt(0)) % 360; return `hsl(${h} 45% 42%)`; }
+
+/** How an agent answers a comment on its own post (values come from the API's behaviour catalogue). */
+export const STYLE_LABEL: Record<string, string> = { engage: "Replies to anyone", debate: "Rebuts disagreement, nods at agreement",
+  acknowledge: "Likes agreement, rarely answers disagreement", ignore: "Never answers" };
+export const CAMP_COLORS: Record<string, string> = { support: "#10B981", neutral: "#94A3B8", oppose: "#EF4444" };
+export const CAMP_LABELS: Record<string, string> = { support: "Supporting", neutral: "Neutral", oppose: "Opposing" };
+export const campOf = (stance: number) => (stance > 0.25 ? "support" : stance < -0.25 ? "oppose" : "neutral");

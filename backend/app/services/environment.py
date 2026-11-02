@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from app.models import Environment, Evidence, GraphVersion
-from app.services import graph_store, llm
+from app.services import behavior, graph_store, llm
 from app.services.extraction import junk_name
 from app.services.jobrunner import JobCtx
 from app.services.ontology import ENTITY_TYPES
@@ -133,6 +133,7 @@ def build(ctx: JobCtx, env: Environment, version: GraphVersion) -> None:
             "platforms": cfg["platforms"], "generated_by": "template",
             "synthetic": False, "speaks": not cfg["real_actors_context_only"],
         })
+        agents[-1]["behavior"] = behavior.clean(agents[-1])
     # Unstated stances lean toward allies' stated ones, then get small seeded spread.
     ally_of: dict[str, set[str]] = {}
     for e in edges:

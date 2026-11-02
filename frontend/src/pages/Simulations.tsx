@@ -56,7 +56,7 @@ function SimulationView({ caseId, simId }: { caseId: string; simId: string }) {
   const reports = useQuery({ queryKey: ["reports", caseId], queryFn: () => api.get<Report[]>(`/cases/${caseId}/reports`) });
   const [platformOnly, setPlatformOnly] = useState<string | null>(null);
   const [leftView, setLeftView] = useState<"feed" | "graph">(() => (new URLSearchParams(window.location.search).get("view") === "graph" ? "graph" : "feed"));
-  const [scope, setScope] = useState<Scope>({ kind: "agents" });
+  const [scope, setScope] = useState<Scope>({ kind: "overlay" });
   const [preset, setPreset] = useState<{ target?: string; tick: number }>({ tick: 0 });
   useEffect(() => { if (job.data?.status === "done") { qc.invalidateQueries({ queryKey: ["sim", simId] }); qc.invalidateQueries({ queryKey: ["simEvents", simId] }); } }, [job.data?.status, qc, simId]);
 
@@ -89,7 +89,7 @@ function SimulationView({ caseId, simId }: { caseId: string; simId: string }) {
           <div className="pa"><span><Heart />{e.likes}</span><span><Repeat2 />{e.reposts}</span><span><MessageCircle />{e.replies}</span>
             <span style={{ marginLeft: "auto" }} className={`gen ${e.generated_by.startsWith("ollama") ? "llm" : ""}`}>{e.generated_by}</span></div>
           <div className="pa" style={{ marginTop: 6 }}>
-            <button className="btn ghost sm" title="Show the reactions to this post as a 3D graph" onClick={() => { setScope({ kind: "post", id: e.id }); setLeftView("graph"); }}><Network />Reactions</button>
+            <button className="btn ghost sm" title="Show this thread on the original graph" onClick={() => { setScope({ kind: "overlay", post: e.id }); setLeftView("graph"); }}><Network />Reactions</button>
             {s.status === "done" && can("sim.run") && <button className="btn ghost sm" title="Make a persona react to this post" onClick={() => { setPreset(x => ({ target: e.id, tick: x.tick + 1 })); document.getElementById("trigger")?.scrollIntoView({ behavior: "smooth", block: "center" }); }}><Zap />React…</button>}</div>
         </article>; })}
         {!feed(p).length && <p className="small muted" style={{ padding: 12 }}>{running ? "Waiting for the first posts…" : "No posts on this platform."}</p>}</div>
@@ -137,7 +137,7 @@ function SimulationView({ caseId, simId }: { caseId: string; simId: string }) {
       <ul className="small" style={{ margin: 0, paddingLeft: 18 }}>{st.movers.slice(0, 5).map(m => <li key={m.id}>{m.name}: {m.from.toFixed(2)} → {m.to.toFixed(2)}</li>)}</ul>
     </StepCard>}
     {s.status === "done" && can("sim.run") && <TriggerCard n={5} simId={s.id} agents={s.agents ?? []} posts={events.data ?? []} preset={preset}
-      onDone={r => { const e = r.events[0]; if (["CREATE_POST", "CREATE_COMMENT", "REPOST"].includes(e.action)) { setScope({ kind: "post", id: e.id }); setLeftView("graph"); } else if (e.target_id) { setScope({ kind: "post", id: e.target_id }); setLeftView("graph"); } }} />}
+      onDone={r => { const e = r.events[0]; setScope({ kind: "overlay", post: e.target_id ?? e.id }); setLeftView("graph"); }} />}
     <StepCard n={s.status === "done" && can("sim.run") ? 6 : 5} title="Simulation Complete" state={s.status === "done" ? "done" : "wait"} endpoint={`POST /api/v1/simulations/${s.id}/reports`}
       desc="Generate a report: findings are computed from the run; the local LLM writes the narrative sections.">
       <div className="cs-actions">

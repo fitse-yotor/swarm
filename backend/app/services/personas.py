@@ -13,6 +13,8 @@ import hashlib
 import math
 import re
 
+from app.services import behavior
+
 _LINE = re.compile(
     r"^\s*[-*•]?\s*\**\s*(?P<pid>(?:SIM|SYN)[-\s]?\w+)\s*[—–-]+\s*(?P<label>[^(;]+?)\s*\((?P<where>[^;]+);\s*(?P<view>[^;]+?)\)\s*\**"
     r"\s*(?:\[stance\s*(?P<stance>[+-]?\d*\.?\d+)\])?\s*:?\s*[“\"](?P<quote>.+?)[”\"]\s*(?:\[(?:simulation\s+)?topic\s*(?P<topic>T\d+)\])?",
@@ -88,6 +90,7 @@ def to_agents(personas: list[dict], platforms: list[str], existing_ids: set[str]
             "synthetic": True, "speaks": True, "persona_id": p["pid"],
             "x": round(400 + 430 * math.cos(ang)), "y": round(300 + 330 * math.sin(ang)),
         })
+        agents[-1]["behavior"] = behavior.clean(agents[-1])
     return agents
 
 

@@ -5,12 +5,12 @@ import { addEdge, Background, BackgroundVariant, Controls, Handle, Position, Rea
   type Connection, type Edge, type Node, type NodeProps } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { ArrowRight, Check, Copy, Layers, Plus, RefreshCw, Save, Trash2, Users } from "lucide-react";
-import { api, type Agent, type AgentLink, type EnvConfig, type Environment, type Graph, type Simulation } from "../api";
+import { api, type Agent, type AgentLink, type Behavior, type BehaviorCatalogue, type EnvConfig, type Environment, type Graph, type Simulation } from "../api";
 import { useAuth } from "../auth";
 import { Empty, isUnavailable, Modal, useToast } from "../components/ui";
 import { StageLayout, StepCard, Stats, SysLog, jobState, stanceColor, stanceWord } from "../components/Stage";
 import { useEnvs, useJob, useTheme } from "../hooks";
-import { ago, initials } from "../vocab";
+import { ago, initials, STYLE_LABEL } from "../vocab";
 import { useCase } from "./CaseDetail";
 
 const LINK_STYLE: Record<AgentLink["kind"], { stroke: string; dash?: string; label: string }> = {
@@ -295,6 +295,39 @@ function ConfigForm({ cfg, editable, onChange }: { cfg: EnvConfig; editable: boo
   </div>;
 }
 
+const MIX_LABEL: Record<string, string> = { post: "Posts", comment: "Comments", repost: "Reposts", like: "Likes", dislike: "Dislikes", follow: "Follows" };
+const MIX_NOTE: Record<string, string> = { repost: "microblog only", follow: "microblog only", dislike: "forum only" };
+
+/** What this agent does when it is active, and how it answers a comment on its own post. Sliders are relative weights. */
+function BehaviorEditor({ agent: a, editable, onChange }: { agent: Agent; editable: boolean; onChange: (p: Partial<Agent>) => void }) {
+  const cat = useQuery({ queryKey: ["behavior-presets"], queryFn: () => api.get<BehaviorCatalogue>("/behavior/presets"), staleTime: Infinity });
+  const b = a.behavior;
+  if (!b) return null;
+  const total = Object.values(b.mix).reduce((x, y) => x + y, 0) || 1;
+  const set = (p: Partial<Behavior>) => onChange({ behavior: { ...b, ...p } });
+  const preset = cat.data?.presets.find(p => p.id === b.preset);
+  const custom = !!preset && (Object.keys(b.mix).some(k => Math.abs((b.mix[k] ?? 0) - (preset.mix[k] ?? 0)) > 0.02) || Math.abs(b.responsiveness - preset.responsiveness) > 0.02 || b.reply_style !== preset.reply_style);
+  return <fieldset className="beh" disabled={!editable}>
+    <legend className="cs-label" style={{ marginTop: 0 }}>Behaviour <span className="dim">· what it does and how it answers</span></legend>
+    {a.speaks === false && <p className="xs dim">This real actor is context-only, so these settings only apply if it is allowed to post.</p>}
+    <div className="chips" role="group" aria-label="Behaviour preset">{(cat.data?.presets ?? []).map(p =>
+      <button key={p.id} type="button" className={`chip ${b.preset === p.id ? "on" : ""}`} aria-pressed={b.preset === p.id} title={p.desc}
+        onClick={() => set({ preset: p.id, mix: p.mix, responsiveness: p.responsiveness, reply_style: p.reply_style })}>{p.label}</button>)}</div>
+    <p className="xs dim mt8">{preset?.desc}{custom && <b> Customised below.</b>}</p>
+    <div className="mixbar" role="img" aria-label={`Action mix: ${Object.entries(b.mix).map(([k, v]) => `${MIX_LABEL[k]} ${Math.round((v / total) * 100)}%`).join(", ")}`}>
+      {Object.entries(b.mix).filter(([, v]) => v > 0).map(([k, v]) => <i key={k} className={`mx-${k}`} style={{ width: `${(v / total) * 100}%` }} title={`${MIX_LABEL[k]} ${Math.round((v / total) * 100)}%`} />)}</div>
+    <div className="mixgrid">{Object.keys(MIX_LABEL).map(k => <div key={k} className="field"><label>{MIX_LABEL[k]} <span className="dim">{Math.round(((b.mix[k] ?? 0) / total) * 100)}%{MIX_NOTE[k] ? ` · ${MIX_NOTE[k]}` : ""}</span></label>
+      <input type="range" min={0} max={100} value={Math.round((b.mix[k] ?? 0) * 100)} aria-label={`${MIX_LABEL[k]} weight`}
+        onChange={x => set({ mix: { ...b.mix, [k]: +x.target.value / 100 } })} /></div>)}</div>
+    <div className="form-grid mt8">
+      <div className="field"><label>Answers comments on its posts <span className="dim">{Math.round(b.responsiveness * 100)}%</span></label>
+        <input type="range" min={0} max={100} value={b.responsiveness * 100} aria-label="Responsiveness" onChange={x => set({ responsiveness: +x.target.value / 100 })} /></div>
+      <div className="field"><label htmlFor="b-style">How it answers</label>
+        <select id="b-style" className="sel" value={b.reply_style} onChange={x => set({ reply_style: x.target.value })}>{(cat.data?.reply_styles ?? [b.reply_style]).map(s => <option key={s} value={s}>{STYLE_LABEL[s] ?? s}</option>)}</select></div>
+    </div>
+  </fieldset>;
+}
+
 function AgentEditor({ agent: a, editable, onChange, onClose, onRemove }: { agent: Agent; editable: boolean; onChange: (p: Partial<Agent>) => void; onClose: () => void; onRemove: () => void }) {
   const slider = (k: "stance" | "activity" | "influence", label: string, min: number) => <div className="field"><label>{label}</label>
     <div className="range-row"><input type="range" min={min * 100} max={100} value={a[k] * 100} disabled={!editable} aria-label={label} onChange={x => onChange({ [k]: +x.target.value / 100 })} /><output>{a[k].toFixed(2)}</output></div></div>;
@@ -311,6 +344,7 @@ function AgentEditor({ agent: a, editable, onChange, onClose, onRemove }: { agen
       {slider("stance", `Stance — ${stanceWord(a.stance)} (−1 opposes · +1 supports)`, -1)}
       <div className="stance-bar"><i style={{ left: `${(a.stance + 1) * 50}%` }} /></div>
       <div className="form-grid">{slider("activity", "Activity", 0)}{slider("influence", "Influence", 0.05)}</div>
+      <BehaviorEditor agent={a} editable={editable} onChange={onChange} />
       <div className="field"><label>Persona</label><textarea className="inp" rows={4} value={a.persona} disabled={!editable} onChange={x => onChange({ persona: x.target.value })} /></div>
       <div className="field"><label>Interests (comma separated)</label><input className="inp" value={a.interests.join(", ")} disabled={!editable} onChange={x => onChange({ interests: x.target.value.split(",").map(t => t.trim()).filter(Boolean) })} /></div>
       {a.facts.length > 0 && <div><div className="cs-label" style={{ marginTop: 0 }}>Graph facts</div><ul className="small muted" style={{ margin: 0, paddingLeft: 18 }}>{a.facts.slice(0, 8).map(f => <li key={f}>{f}</li>)}</ul></div>}

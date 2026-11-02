@@ -69,6 +69,28 @@ runs of a case shows how the same population reacts to favourable versus unfavou
 build page shows the knowledge graph assembling live in 3D (Three.js via `3d-force-graph`, bundled locally, no CDN), then
 hands over to the final graph.
 
+## Agent behaviour and reactions
+
+Every agent has a **behaviour profile** (Environment → click an agent → *Behaviour*): a preset (Balanced, Broadcaster, Commenter,
+Debater, Amplifier, Lurker) plus sliders for how much it posts, comments, reposts, likes, dislikes and follows, how often it
+answers a comment on its own post, and *how* it answers (replies to anyone / rebuts disagreement and nods at agreement / likes
+agreement and rarely answers disagreement / never answers). Defaults come from the agent's kind and stance (institutions and
+governments broadcast; strongly opinionated people debate). The simulation engine uses these instead of one global action table,
+and an agent that has been commented on answers first, as its profile decides (`behavior.py`).
+
+**Trigger a persona** (simulation page): pick a post, make a persona comment on it, and the *post's author* decides what to do
+(reply, like, or let it pass) from its own profile and the stance gap to the commenter. The other personas then react from their
+profiles. Every decision comes back with its reason, e.g. "Debater, answers 100% of comments: disagrees and rebuts (stance gap
+1.63 ≥ ε 0.6)". Triggered rows are labelled `analyst-trigger` / `reaction-model`.
+
+**Reaction graph → On the graph** draws the original actor network (agents and their ally / opponent relations from the knowledge
+graph) with posts, comments, reposts and likes on top. Focus on the most engaged threads, one thread, or one persona. *Camp*
+colours by final stance and *Cluster* pulls supporters, neutrals and opponents into separate groups. The graph build page has the
+same *Cluster* control (by entity type while building, by detected community once finished).
+
+The 3D graph, cluster layout and build animation are implemented in this repository. They were **not** copied from MiroFish, which
+is AGPL-3.0: using its code would put this project under the same licence.
+
 ## Graph and simulation interaction
 
 - **Sidebar:** icons only (hover for a description). Case icons (graph, review, documents, stages 2-5) appear only while a case is open; create a case from the Dashboard or Cases page.
