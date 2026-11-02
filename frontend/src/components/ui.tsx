@@ -13,6 +13,9 @@ const SHAPE_PATHS: Record<Shape, (c: string) => ReactNode> = {
   pentagon: c => <polygon points="6,0.6 11.5,4.6 9.4,11.2 2.6,11.2 0.5,4.6" fill={c} />,
   ring: c => <circle cx="6" cy="6" r="4" fill="none" stroke={c} strokeWidth="2.4" />,
   doc: c => <rect x="1.5" y="0.8" width="9" height="10.4" rx="1" fill="none" stroke={c} strokeWidth="1.8" />,
+  star: c => <polygon points="6,0.4 7.5,4.2 11.6,4.4 8.4,7 9.5,11 6,8.8 2.5,11 3.6,7 0.4,4.4 4.5,4.2" fill={c} />,
+  octagon: c => <polygon points="3.6,0.8 8.4,0.8 11.2,3.6 11.2,8.4 8.4,11.2 3.6,11.2 0.8,8.4 0.8,3.6" fill="none" stroke={c} strokeWidth="2" />,
+  cross: c => <polygon points="4.4,0.8 7.6,0.8 7.6,4.4 11.2,4.4 11.2,7.6 7.6,7.6 7.6,11.2 4.4,11.2 4.4,7.6 0.8,7.6 0.8,4.4 4.4,4.4" fill={c} />,
 };
 
 export const ShapeIcon = ({ type, size = 12 }: { type: EntityType; size?: number }) => (

@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from neo4j.exceptions import ServiceUnavailable, SessionExpired
 
-from app.api import admin, auth, cases, documents, graph, jobs, workflow
+from app.api import admin, auth, cases, documents, dynamic, graph, jobs, workflow
 from app.core.config import settings
 from app.core.db import Base, engine
 from app.services import embeddings, llm
@@ -22,7 +22,7 @@ app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins, allow_cr
                    allow_methods=["*"], allow_headers=["*"])
 
 for r in (auth.router, cases.router, documents.router, jobs.router, graph.router, workflow.router, admin.router,
-          admin.public):
+          admin.public, dynamic.router):
     app.include_router(r, prefix=settings.api_prefix)
 
 

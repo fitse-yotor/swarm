@@ -16,8 +16,8 @@ import math
 import random
 import statistics
 
-from app.models import Environment, SimEvent, Simulation, new_id, utcnow
-from app.services import behavior, llm
+from app.models import Case, Environment, SimEvent, Simulation, new_id, utcnow
+from app.services import behavior, dynamic_graph, llm
 from app.services.jobrunner import JobCtx
 
 ENGINE = "lattice-abm/1"
@@ -293,9 +293,31 @@ def run(ctx: JobCtx) -> None:
     ctx.log(f"{ENGINE}: {len(eng.agents)} agents, {rounds} rounds, platforms {', '.join(eng.cfg['platforms'])}; "
             f"{eng.llm_budget} LLM-written posts per round ({llm.name() if eng.llm_budget else 'templates only'})", "o")
 
+    # One evolving case graph: every action becomes explicit graph events, with snapshots at the start, every few rounds and at the end.
+    case = db.get(Case, sim.case_id)
+    rec = dynamic_graph.new_recorder(db, sim)
+    every = max(1, int(eng.cfg.get("snapshot_every", 6)))
+    graph_ok = [True]
+
+    def graph_step(what: str, fn):
+        if not graph_ok[0]:
+            return None
+        try:
+            return fn()
+        except Exception as e:  # noqa: BLE001 — the run itself must finish; the gap is reported, and recording stops so state stays consistent
+            graph_ok[0] = False
+            ctx.log(f"Graph recording stopped at {what}: {type(e).__name__}: {str(e)[:160]}. The run continues; its graph history is incomplete.", "e")
+            return None
+
+    graph_step("start", lambda: rec.snapshot(case, "simulation_start", ctx.job.created_by, note=f"{sim.name}: agents initialised, before round 0"))
     ctx.stage(1)
     for r in range(rounds + 1):
+        known = set(eng.by_id)
         m = eng.round(r)
+        new_events = [e for i, e in eng.by_id.items() if i not in known]
+        graph_step(f"round {r}", lambda new_events=new_events: rec.record(new_events, stances=dict(eng.stance)))
+        if r < rounds and (r + 1) % every == 0:
+            graph_step(f"round {r}", lambda r=r: rec.snapshot(case, "checkpoint", ctx.job.created_by, note=f"{sim.name}: after round {r}"))
         sim.rounds = [*sim.rounds, m]
         acts = m["actions"]
         ctx.log(f"[Round {r}/{rounds}] {m['active']} active · {acts['CREATE_POST']} posts · "
@@ -337,5 +359,6 @@ def run(ctx: JobCtx) -> None:
             f"{sim.stats['polarization_start']:.2f} → {sim.stats['polarization_end']:.2f}; "
             f"{len(eng.by_id)} events, {eng.llm_count} written by the local LLM", "o")
     ctx.stage(3)
+    graph_step("completion", lambda: rec.snapshot(case, "simulation_complete", ctx.job.created_by, note=f"{sim.name}: complete after round {rounds}"))
     sim.status, sim.finished_at = "done", utcnow()
     ctx.log("Simulation complete — ready for report generation", "o")

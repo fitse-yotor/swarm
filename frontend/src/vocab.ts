@@ -1,6 +1,6 @@
 import type { ClaimStatus, EntityType } from "./api";
 
-export type Shape = "circle" | "square" | "diamond" | "triangle" | "hexagon" | "pentagon" | "ring" | "doc";
+export type Shape = "circle" | "square" | "diamond" | "triangle" | "hexagon" | "pentagon" | "ring" | "doc" | "star" | "octagon" | "cross";
 
 export const ETYPES: Record<EntityType, { label: string; shape: Shape; desc: string }> = {
   person: { label: "Person", shape: "circle", desc: "Named individuals: officials, experts, journalists, leaders." },
@@ -11,8 +11,14 @@ export const ETYPES: Record<EntityType, { label: string; shape: Shape; desc: str
   policy: { label: "Policy", shape: "pentagon", desc: "Agreements, laws, protocols, tariffs and formal rules." },
   topic: { label: "Topic", shape: "ring", desc: "Themes and issues discussed across sources." },
   document: { label: "Document", shape: "doc", desc: "Source documents represented as nodes for provenance." },
+  reaction: { label: "Reaction hypothesis", shape: "star", desc: "AI-generated hypothesis about how an actor might respond. Not a verified statement." },
+  agent: { label: "Simulated agent", shape: "octagon", desc: "Synthetic agent in a simulation run." },
+  statement: { label: "Simulated statement", shape: "cross", desc: "Text produced by a synthetic agent in a simulation run." },
 };
-export const TYPE_KEYS = Object.keys(ETYPES) as EntityType[];
+/** Entity types extracted from sources (used by the explorer's filters and the case wizard). */
+export const TYPE_KEYS = ["person", "organization", "country", "location", "event", "policy", "topic", "document"] as EntityType[];
+/** Every node kind the canvas can draw, in a stable order. */
+export const ALL_TYPE_KEYS = Object.keys(ETYPES) as EntityType[];
 
 export const STATUS: Record<ClaimStatus, { label: string; cls: string }> = {
   approved: { label: "Verified", cls: "b-ok" },
@@ -20,6 +26,10 @@ export const STATUS: Record<ClaimStatus, { label: string; cls: string }> = {
   rejected: { label: "Rejected", cls: "b-err" },
   conflict: { label: "Conflicting evidence", cls: "b-warn" },
   manual: { label: "Analyst-added", cls: "b-acc" },
+  hypothesis: { label: "Hypothesis", cls: "b-warn" },
+  simulated: { label: "Simulated", cls: "b-syn" },
+  selected: { label: "Selected", cls: "b-acc" },
+  excluded: { label: "Excluded", cls: "b-err" },
 };
 
 export const STAGES = ["Graph build", "Environment", "Simulation", "Report", "Interaction"];

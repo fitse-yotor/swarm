@@ -7,7 +7,7 @@ import uuid
 from datetime import UTC, datetime
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import JSON, BigInteger, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, BigInteger, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -301,3 +301,98 @@ class Conversation(Base):
     created_by: Mapped[str] = mapped_column(String(200))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+# ---------------------------------------------------------------- generated reactions, graph events, snapshots
+class ReactionRun(Base):
+    """One automatic generation of reaction hypotheses from an approved graph version. Re-running adds a new run."""
+    __tablename__ = "reaction_runs"
+    __table_args__ = (UniqueConstraint("case_id", "number"),)
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("rr"))
+    case_id: Mapped[str] = mapped_column(ForeignKey("cases.id", ondelete="CASCADE"), index=True)
+    version_id: Mapped[str] = mapped_column(String(40))  # the approved graph version the hypotheses were generated from
+    number: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(20), default="generating")  # generating | ready | failed
+    mode: Mapped[str] = mapped_column(String(20), default="demo-rules")  # llm | demo-rules
+    provider: Mapped[str] = mapped_column(String(120), default="")
+    template_version: Mapped[str] = mapped_column(String(40), default="")
+    stats: Mapped[dict] = mapped_column(JSON, default=dict)
+    job_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Reaction(Base):
+    """A generated hypothesis about how an actor might respond. Never a verified statement or real-world event."""
+    __tablename__ = "reactions"
+    __table_args__ = (Index("ix_reactions_case_status", "case_id", "status"), Index("ix_reactions_run_actor", "run_id", "actor_id"))
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("rx"))
+    case_id: Mapped[str] = mapped_column(ForeignKey("cases.id", ondelete="CASCADE"), index=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("reaction_runs.id", ondelete="CASCADE"))
+    version_id: Mapped[str] = mapped_column(String(40))
+    actor_id: Mapped[str] = mapped_column(String(40))  # research-graph node id
+    actor_name: Mapped[str] = mapped_column(String(300))
+    actor_type: Mapped[str] = mapped_column(String(30))
+    title: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(Text)
+    category: Mapped[str] = mapped_column(String(40))
+    trigger: Mapped[str] = mapped_column(String(400))
+    related: Mapped[list] = mapped_column(JSON, default=list)       # [{id, name, relation}] connected entities used
+    evidence_ids: Mapped[list] = mapped_column(JSON, default=list)  # Evidence rows that ground the context
+    reasoning: Mapped[str] = mapped_column(Text, default="")
+    confidence: Mapped[float] = mapped_column(Float, default=0.3)
+    assumptions: Mapped[list] = mapped_column(JSON, default=list)   # [{text, basis: evidence_supported|model_inferred|synthetic}]
+    warnings: Mapped[list] = mapped_column(JSON, default=list)
+    provenance: Mapped[str] = mapped_column(String(30), default="generated_hypothesis")
+    status: Mapped[str] = mapped_column(String(20), default="generated")  # generated | reviewed | selected | excluded
+    edited: Mapped[bool] = mapped_column(default=False)
+    environment_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    generator: Mapped[dict] = mapped_column(JSON, default=dict)     # {mode, provider, template_version}
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class GraphEvent(Base):
+    """Append-only record of one change to the simulation layer of the case graph. Never edited or deleted individually."""
+    __tablename__ = "graph_events"
+    __table_args__ = (UniqueConstraint("run_id", "attempt", "seq"), Index("ix_graph_events_case_run", "case_id", "run_id"))
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("ge"))
+    case_id: Mapped[str] = mapped_column(String(40), index=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("simulations.id", ondelete="CASCADE"))
+    attempt: Mapped[int] = mapped_column(Integer, default=1)  # a retried run starts a new attempt; old events stay as history
+    seq: Mapped[int] = mapped_column(Integer)
+    step: Mapped[int] = mapped_column(Integer)  # simulation round
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    event_type: Mapped[str] = mapped_column(String(40), index=True)
+    actor_ids: Mapped[list] = mapped_column(JSON, default=list)
+    description: Mapped[str] = mapped_column(Text, default="")
+    nodes: Mapped[list] = mapped_column(JSON, default=list)   # affected node ids (unified graph ids)
+    edges: Mapped[list] = mapped_column(JSON, default=list)   # affected edge ids
+    before: Mapped[dict] = mapped_column(JSON, default=dict)
+    after: Mapped[dict] = mapped_column(JSON, default=dict)
+    trigger_event_id: Mapped[str | None] = mapped_column(String(40), nullable=True)  # the SimEvent that caused it
+    provenance: Mapped[str] = mapped_column(String(30), default="simulation_generated")
+    graph_version: Mapped[int] = mapped_column(Integer, default=0)  # dynamic graph version this event created
+
+
+class GraphSnapshot(Base):
+    """Immutable copy of the layered graph at a point in time. There is deliberately no update path."""
+    __tablename__ = "graph_snapshots"
+    __table_args__ = (UniqueConstraint("case_id", "number"),)
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("sn"))
+    case_id: Mapped[str] = mapped_column(ForeignKey("cases.id", ondelete="CASCADE"), index=True)
+    parent_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    number: Mapped[int] = mapped_column(Integer)
+    reason: Mapped[str] = mapped_column(String(40))  # research_approved | reactions_generated | simulation_start | checkpoint | simulation_complete | manual
+    note: Mapped[str] = mapped_column(Text, default="")
+    version_id: Mapped[str | None] = mapped_column(String(40), nullable=True)  # research graph version
+    simulation_id: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
+    step: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    event_seq: Mapped[int | None] = mapped_column(Integer, nullable=True)  # last graph event included
+    reaction_run_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    graph_version: Mapped[int] = mapped_column(Integer, default=0)
+    created_by: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    state: Mapped[dict] = mapped_column(JSON, default=dict)
+    content_hash: Mapped[str] = mapped_column(String(64))

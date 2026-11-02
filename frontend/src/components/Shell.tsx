@@ -1,7 +1,7 @@
 import { useEffect, useState, type FocusEvent, type MouseEvent } from "react";
 import { NavLink, Outlet, useLocation, useMatch, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { BookOpen, FileText, Folder, Inbox, Layers, LayoutDashboard, LogOut, MessageSquare, Moon, Play, Share2, Shield,
+import { BookOpen, FileText, Folder, GitBranch, Inbox, Layers, Lightbulb, LayoutDashboard, LogOut, MessageSquare, Moon, Play, Share2, Shield,
   Sun } from "lucide-react";
 import { api, type Case } from "../api";
 import { useAuth } from "../auth";
@@ -22,7 +22,7 @@ export const useLastCase = () => {
   return id ?? load<string | null>("case", null);
 };
 
-const TITLES: [RegExp, string][] = [[/\/graph$/, "Graph explorer"], [/\/review$/, "Review queue"], [/\/documents$/, "Documents"],
+const TITLES: [RegExp, string][] = [[/\/graph$/, "Graph explorer"], [/\/dynamic$/, "Dynamic graph"], [/\/reactions$/, "Reactions"], [/\/review$/, "Review queue"], [/\/documents$/, "Documents"],
   [/\/build\//, "Graph build"], [/\/environments/, "Environments"], [/\/simulations/, "Simulations"], [/\/reports/, "Reports"],
   [/\/interaction/, "Conversations"], [/^\/cases\/new/, "Create case"], [/^\/cases\/[^/]+$/, "Case"], [/^\/cases$/, "Cases"], [/^\/$/, "Dashboard"], [/^\/admin/, "Administration"], [/^\/account/, "My account"]];
 
@@ -70,6 +70,8 @@ export default function Shell() {
           {caseId && <>
           <hr />
           <NavLink to={caseLink("graph")} {...tipFor("Graph explorer", `Stage 1 · Explore the knowledge graph, inspect evidence and ask the graph.${needCase}`)}><Share2 /></NavLink>
+          <NavLink to={caseLink("reactions")} {...tipFor("Reactions", `AI-generated hypotheses about how actors might respond, for review and selection.${needCase}`)}><Lightbulb /></NavLink>
+          <NavLink to={caseLink("dynamic")} {...tipFor("Dynamic graph", `One evolving graph: research, reactions and simulation layers, with snapshots and a timeline.${needCase}`)}><GitBranch /></NavLink>
           <NavLink to={caseLink("review")} {...tipFor("Review queue", `Stage 1 · Approve, reject, edit and merge extracted claims.${needCase}`)}><Inbox /></NavLink>
           <NavLink to={caseLink("documents")} {...tipFor("Documents", `Stage 1 · Upload sources and read them with highlighted evidence.${needCase}`)}><BookOpen /></NavLink>
           <hr />

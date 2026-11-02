@@ -16,6 +16,10 @@ function path(shape: Shape, r = R): string {
     case "triangle": return `<polygon points="${c},${c - r} ${c + r * 0.95},${c + r * 0.7} ${c - r * 0.95},${c + r * 0.7}"/>`;
     case "hexagon": return `<polygon points="${poly(6, 0)}"/>`;
     case "pentagon": return `<polygon points="${poly(5, -Math.PI / 2)}"/>`;
+    case "octagon": return `<polygon points="${poly(8, Math.PI / 8)}"/>`;
+    case "star": return `<polygon points="${Array.from({ length: 10 }, (_, i) => { const a = -Math.PI / 2 + (i * Math.PI) / 5, k = i % 2 ? r * 0.5 : r * 1.12;
+      return `${(c + Math.cos(a) * k).toFixed(1)},${(c + Math.sin(a) * k).toFixed(1)}`; }).join(" ")}"/>`;
+    case "cross": { const w = r * 0.42; return `<polygon points="${c - w},${c - r} ${c + w},${c - r} ${c + w},${c - w} ${c + r},${c - w} ${c + r},${c + w} ${c + w},${c + w} ${c + w},${c + r} ${c - w},${c + r} ${c - w},${c + w} ${c - r},${c + w} ${c - r},${c - w} ${c - w},${c - w}"/>`; }
     default: return `<circle cx="${c}" cy="${c}" r="${r}"/>`;
   }
 }
@@ -28,15 +32,19 @@ export function glyph(shape: Shape, fill: string, status: ClaimStatus, opts: { d
   const hit = cache.get(key);
   if (hit) return hit;
   const { pal } = opts;
-  const hollow = shape === "ring" || shape === "doc" || status === "rejected";
-  const stroke = status === "rejected" ? pal.err : fill;
+  const hollow = shape === "ring" || shape === "doc" || shape === "octagon" || status === "rejected" || status === "excluded";
+  const stroke = status === "rejected" ? pal.err : status === "excluded" ? pal.tx2 : fill;
   const body = hollow
     ? `<g fill="${pal.bg}" stroke="${stroke}" stroke-width="12">${path(shape, R - 6)}</g>`
     : `<g fill="${fill}" stroke="${pal.bg}" stroke-width="4">${path(shape)}</g>`;
   let ring = "";
+  if (status === "hypothesis")  // generated hypotheses: a dashed ring, like unreviewed claims, plus the star shape
+    ring = `<g fill="none" stroke="${pal.warn}" stroke-width="5" stroke-dasharray="10 7">${path(shape, R + 11)}</g>`;
+  if (status === "simulated")
+    ring = `<g fill="none" stroke="${pal.acc}" stroke-width="4" stroke-dasharray="2 8" stroke-linecap="round">${path(shape, R + 11)}</g>`;
   if (status === "pending" || status === "conflict")
     ring = `<g fill="none" stroke="${status === "conflict" ? pal.warn : pal.tx2}" stroke-width="5" stroke-dasharray="10 7">${path(shape, R + 11)}</g>`;
-  if (status === "manual") ring = `<g fill="none" stroke="${pal.acc}" stroke-width="5">${path(shape, R + 11)}</g>`;
+  if (status === "manual" || status === "selected") ring = `<g fill="none" stroke="${pal.acc}" stroke-width="5">${path(shape, R + 11)}</g>`;
   const sel = opts.selected ? `<g fill="none" stroke="${pal.acc}" stroke-width="6">${path(shape, R + 17)}</g>` : "";
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128"><g opacity="${opts.dim ? 0.16 : 1}">${body}${ring}${sel}</g></svg>`;
   const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;

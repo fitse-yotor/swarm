@@ -1,4 +1,5 @@
 """Stages 2-5: environments, simulations, reports and conversations."""
+import logging
 from datetime import datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -12,7 +13,7 @@ from app.core.db import SessionLocal, get_db
 from app.core.deps import audit, current_user, get_case, require
 from app.models import (Conversation, Environment, GraphVersion, ProcessingJob, Report, SimEvent, Simulation, User,
                         utcnow)
-from app.services import behavior, interaction, personas, reactions, versions, workspace
+from app.services import behavior, dynamic_graph, interaction, personas, reactions, versions, workspace
 from app.services.environment import DEFAULT_CONFIG
 
 router = APIRouter(tags=["workflow"])
@@ -370,6 +371,10 @@ def trigger_action(sim_id: str, body: ActionIn, db: Session = Depends(get_db), u
         pass  # template post
     created, responses = reactions.trigger(db, sim, agent_id=body.agent_id, action=body.action, platform=body.platform, target=target,
                                 content=body.content, react=body.react, use_llm=body.use_llm, actor=user.name)
+    try:
+        dynamic_graph.record_trigger(db, sim, created)
+    except Exception:  # noqa: BLE001 — the action itself succeeded; log the gap instead of failing the request
+        logging.getLogger(__name__).warning("Could not record graph events for a triggered action", exc_info=True)
     audit(db, user, "simulation.trigger", f"{agent['name']} {body.action}", sim.case_id, simulation=sim.id)
     db.commit()
     return {"events": [{k: getattr(e, k) for k in ("id", "round", "platform", "agent_id", "agent_name", "action", "content", "target_id",

@@ -1,19 +1,21 @@
 import csv
 import io
 import json
+import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.jobs import enqueue
 from app.core.db import get_db
 from app.core.deps import audit, current_user, get_case, has_perm, require
-from app.models import Case, DocumentChunk, Evidence, GraphVersion, ReviewAction, SourceDocument, User, utcnow
+from app.models import Case, DocumentChunk, Evidence, GraphVersion, ReactionRun, ReviewAction, SourceDocument, User, utcnow
 from app.schemas import (BulkStatusIn, EdgeIn, EdgeOut, EdgePatch, EvidenceOut, GraphOut, HistoryOut, MergeIn, NodeIn,
                          NodeOut, NodePatch, QueryIn, VersionOut)
-from app.services import analytics, graph_store, graphrag, versions
+from app.services import analytics, dynamic_graph, graph_store, graphrag, reaction_gen, versions
 from app.services.ontology import normalize_rel_type
 from app.services.resolution import locate
 
@@ -294,13 +296,29 @@ def approval_preview(case_id: str, version_id: str, db: Session = Depends(get_db
 
 
 @router.post("/cases/{case_id}/graph/versions/{version_id}/approve")
-def approve_version(case_id: str, version_id: str, db: Session = Depends(get_db),
+def approve_version(case_id: str, bg: BackgroundTasks, version_id: str, db: Session = Depends(get_db),
                     user: User = Depends(require("graph.approve"))):
     case, v = _ctx(db, user, case_id, version_id)
     approved, draft = versions.approve(db, case, v, user.name)
     audit(db, user, "graph.approve", f"{case.title} — {approved.label}", case.id, content_hash=approved.content_hash)
     db.commit()
-    return {"approved": version_out(approved), "draft": version_out(draft) if draft else None}
+    # Follow-ups once the graph is approved: freeze it as the first snapshot and generate reaction hypotheses from it.
+    # The approval above is already committed, so a failure here is reported but never undoes it.
+    follow = {"snapshot_id": None, "reaction_run_id": None}
+    try:
+        follow["snapshot_id"] = dynamic_graph.create_snapshot(db, case, "research_approved", user.name, version=approved, note=f"{approved.label} approved").id
+        if db.scalar(select(ReactionRun).where(ReactionRun.version_id == approved.id)) is None:
+            run, job = reaction_gen.start_run(db, case, approved, user.name, user.tenant_id, note="Automatic: graph approved")
+            audit(db, user, "reaction.run", f"{case.title}: run {run.number} on {approved.label} (automatic)", case.id)
+            follow["reaction_run_id"] = run.id
+            db.commit()
+            enqueue(job.id, bg)
+        else:
+            db.commit()
+    except Exception:  # noqa: BLE001
+        db.rollback()
+        logging.getLogger(__name__).warning("Post-approval snapshot or reaction run failed for %s", approved.id, exc_info=True)
+    return {"approved": version_out(approved), "draft": version_out(draft) if draft else None, **follow}
 
 
 @router.post("/cases/{case_id}/graph/drafts", response_model=VersionOut, status_code=201)

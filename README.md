@@ -69,7 +69,55 @@ runs of a case shows how the same population reacts to favourable versus unfavou
 build page shows the knowledge graph assembling live in 3D (Three.js via `3d-force-graph`, bundled locally, no CDN), then
 hands over to the final graph.
 
+## Reactions, one evolving graph, snapshots and a timeline
+
+Four kinds of content are kept apart, and every graph item says which it is (`layer` + `provenance`):
+
+| Layer | Provenance | What it is |
+|---|---|---|
+| research | `sourced` | Approved entities and relationships with their source passages. Only approved items ever appear. |
+| reaction | `generated_hypothesis` | Possible actor responses generated from the approved graph. Never a verified statement. |
+| simulation | `simulation_generated` | Synthetic agents, their simulated relationships and statements. |
+| snapshot | n/a | An immutable copy of all three layers at a moment (SHA-256 `content_hash`, verified on read). |
+
+**Automatic reactions** (`services/reaction_gen.py`). Approving a graph version creates a snapshot and starts a reaction run in the
+background. Actors are chosen from the approved graph by structure (relationships, closeness to the case issue, evidence, match with
+the case question), not one per node. Each reaction stores the actor, trigger, connected entities, evidence ids, reasoning,
+confidence, assumptions labelled `evidence_supported` / `model_inferred` / `synthetic`, warnings, and the provider and template
+version that produced it. Output is validated against a typed schema and against the actor's own context (unknown ids dropped, a
+quotation must appear in the linked evidence). Re-running creates a new run; earlier runs and the analyst's review status are kept.
+With no language model configured the generator is a rule set that reads relationship types. It is stored as mode `demo-rules`
+and labelled **demo output, not AI analysis** everywhere. Reviewing: `generated → reviewed → selected | excluded`, edits are recorded.
+Selected reactions are attached to their agents as `hypotheses` when an environment is built (never as `facts`).
+
+**One evolving graph** (`services/dynamic_graph.py`). The simulation layer is a pure fold over append-only `graph_events`
+(`STATEMENT_PUBLISHED`, `RESPONDED_TO`, `REACTED_TO_EVENT`, `POSITION_CHANGED`, `RELATIONSHIP_FORMED/STRENGTHENED/WEAKENED`,
+`ALLIANCE_FORMED`), each with run, step, actors, affected node/edge ids, before/after values, the triggering simulation action and
+the dynamic graph version it created. The "current graph" is a projection (approved research + reactions + the fold), a snapshot is
+the same projection frozen, and a simulation has no code path that writes to the research layer. A retried run opens a new
+`attempt`; the old attempt's events and snapshots stay as history. Snapshots are taken when a graph is approved, after reactions
+are generated, at simulation start, every `snapshot_every` rounds (environment config, default 6), at completion, and on demand.
+
+**Simulation boundary.** The built-in engine reports through `Recorder` (`dynamic_graph.py`); an external engine (for example an
+OASIS adapter) posts typed events to `POST /simulations/{id}/graph-events`, which validates them against the run's agents and
+applies them all-or-nothing. Nothing in the graph UI knows how a simulation runs. No external engine is bundled.
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /cases/{id}/reaction-runs` · `GET …/reaction-runs` · `GET /reaction-runs/{id}` | Generate (new run each time), list, check progress |
+| `GET /cases/{id}/reactions` (filters, `limit`/`offset`) · `GET /reactions/{id}` | Browse; one reaction with its evidence and basis |
+| `PATCH /reactions/{id}` · `POST /cases/{id}/reactions/bulk` | Edit, review, select, exclude |
+| `GET /cases/{id}/dynamic-graph` (`snapshot_id`, `upto_seq`, `simulation_id`, `layers`, `statements`) | The live graph, or the graph at a snapshot or event |
+| `GET /cases/{id}/graph-entity/{node}` | Reactions and simulation events for one entity |
+| `GET/POST /cases/{id}/snapshots` · `GET /snapshots/{id}` · `GET …/snapshots/compare?a=&b=live` | Snapshots (append-only) and per-layer diff |
+| `GET /cases/{id}/timeline` · `GET /simulations/{id}/graph-events` · `POST …/graph-events` · `GET /graph-events/{id}` | Timeline, events, ingestion |
+
+UI: **Reactions** (`/cases/:id/reactions`) and **Dynamic graph** (`/cases/:id/dynamic`) in the sidebar. New tables (`reaction_runs`,
+`reactions`, `graph_events`, `graph_snapshots`) are created at API start like the rest of the schema; there are no Alembic migrations yet.
+
 ## Agent behaviour and reactions
+
+(Behaviour profiles and triggered replies for simulated agents; not the same as the generated reaction hypotheses above.)
 
 Every agent has a **behaviour profile** (Environment → click an agent → *Behaviour*): a preset (Balanced, Broadcaster, Commenter,
 Debater, Amplifier, Lurker) plus sliders for how much it posts, comments, reposts, likes, dislikes and follows, how often it

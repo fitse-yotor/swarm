@@ -11,7 +11,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from app.core.db import SessionLocal
-from app.models import Environment, ProcessingJob, Report, Simulation, utcnow
+from app.models import Environment, ProcessingJob, ReactionRun, Report, Simulation, utcnow
 from app.services.pipeline import STAGES as GRAPH_STAGES
 
 log = logging.getLogger(__name__)
@@ -23,8 +23,9 @@ JOB_STAGES: dict[str, list[str]] = {
     "simulation": ["Initialize agents", "Run simulation rounds", "Compute metrics", "Simulation complete"],
     "report": ["Collect simulation results", "Compute findings", "Retrieve graph evidence", "Write report sections",
                "Report ready"],
+    "reactions": ["Select relevant actors", "Collect graph context and evidence", "Generate hypotheses", "Validate and store", "Reactions ready"],
 }
-TARGETS = {"environment": Environment, "simulation": Simulation, "report": Report}
+TARGETS = {"environment": Environment, "simulation": Simulation, "report": Report, "reactions": ReactionRun}
 
 
 class Cancelled(Exception):
@@ -57,8 +58,8 @@ class JobCtx:
 
 
 def _runner(kind: str) -> Callable[[JobCtx], None]:
-    from app.services import environment, reporting, simulation
-    return {"environment": environment.prepare, "simulation": simulation.run, "report": reporting.generate}[kind]
+    from app.services import environment, reaction_gen, reporting, simulation
+    return {"environment": environment.prepare, "simulation": simulation.run, "report": reporting.generate, "reactions": reaction_gen.generate}[kind]
 
 
 def run_job(job_id: str) -> None:

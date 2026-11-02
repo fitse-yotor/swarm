@@ -21,6 +21,8 @@ import Reports from "./pages/Reports";
 import Interaction from "./pages/Interaction";
 import Admin from "./pages/Admin";
 import Account from "./pages/Account";
+import DynamicGraph from "./pages/DynamicGraph";
+import ReactionHypotheses from "./pages/ReactionHypotheses";
 import { load } from "./prefs";
 import "./styles.css";
 
@@ -49,6 +51,8 @@ function Gate() {
         <Route path="cases/:caseId/simulations/:simId" element={<Simulations />} />
         <Route path="cases/:caseId/reports" element={<Reports />} />
         <Route path="cases/:caseId/reports/:repId" element={<Reports />} />
+        <Route path="cases/:caseId/reactions" element={<ReactionHypotheses />} />
+        <Route path="cases/:caseId/dynamic" element={<DynamicGraph />} />
         <Route path="cases/:caseId/interaction" element={<Interaction />} />
         <Route path="cases/:caseId/interaction/:convId" element={<Interaction />} />
         <Route path="account" element={<Account />} />

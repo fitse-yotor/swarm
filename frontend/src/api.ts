@@ -1,7 +1,8 @@
 // Typed client for the M2 Swarm API (backend/app/schemas.py is the source of truth).
 
-export type EntityType = "person" | "organization" | "country" | "location" | "event" | "policy" | "topic" | "document";
-export type ClaimStatus = "pending" | "approved" | "rejected" | "conflict" | "manual";
+// The first eight are extracted from sources; reaction / agent / statement exist only in the reaction and simulation layers.
+export type EntityType = "person" | "organization" | "country" | "location" | "event" | "policy" | "topic" | "document" | "reaction" | "agent" | "statement";
+export type ClaimStatus = "pending" | "approved" | "rejected" | "conflict" | "manual" | "hypothesis" | "simulated" | "selected" | "excluded";
 
 export interface User { id: string; name: string; email: string; role: string; status: string; permissions: string[] }
 
@@ -239,3 +240,59 @@ export interface AuditEntry { id: string; at: string; actor: string; action: str
 export interface AuditPage { items: AuditEntry[]; next: string | null; actors: string[]; groups: string[] }
 export interface DemoAccount { name: string; email: string; role: string }
 export interface AccountActivity { workspace: string; created_at: string; session_hours: number; events: { id: string; action: string; actor: string; at: string }[] }
+
+// ----- Reactions (generated hypotheses), the layered dynamic graph, snapshots and the timeline
+export type Layer = "research" | "reaction" | "simulation";
+export type ReactionCategory = "support" | "opposition" | "concern" | "neutrality" | "negotiation" | "public_communication" | "policy_response" | "operational_response";
+export type ReactionStatus = "generated" | "reviewed" | "selected" | "excluded";
+export interface ReactionRun {
+  id: string; case_id: string; version_id: string; number: number; status: "generating" | "ready" | "failed"; mode: "llm" | "demo-rules"; provider: string;
+  template_version: string; stats: { actors?: number; reactions?: number; rejected?: number; failed_actors?: number; issue?: string; actor_selection?: { id: string; name: string; score: number; why: string }[] };
+  note: string; created_by: string; created_at: string; job_id: string | null; job: { id: string; status: string; stage: number; progress: number; error: string | null } | null;
+  demo: boolean; label: string;
+}
+export interface Reaction {
+  id: string; case_id: string; run_id: string; actor_id: string; actor_name: string; actor_type: string; title: string; description: string; category: ReactionCategory;
+  trigger: string; related: { id: string; name: string; relation: string }[]; evidence_ids: string[]; reasoning: string; confidence: number; uncertainty: "low" | "medium" | "high";
+  assumptions: { text: string; basis: "evidence_supported" | "model_inferred" | "synthetic" }[]; warnings: string[]; provenance: string; label: string; status: ReactionStatus;
+  edited: boolean; environment_id: string | null; generator: { mode: string; provider: string; template_version: string }; created_at: string; updated_at: string;
+}
+export interface ReactionPage { items: Reaction[]; total: number; limit: number; offset: number; run: ReactionRun | null }
+export interface ReactionDetail { reaction: Reaction; evidence: Evidence[]; run: ReactionRun | null; actor: { id: string; name: string; type: string };
+  basis: Record<"evidence_supported" | "model_inferred" | "synthetic", { text: string; basis: string }[]> }
+
+export interface DynNode {
+  id: string; label: string; layer: Layer; type: EntityType; status: string; provenance: "sourced" | "generated_hypothesis" | "simulation_generated"; confidence?: number;
+  description?: string; evidence_ids?: string[]; stance?: number; stance0?: number; category?: string; actor_id?: string; synthetic?: boolean; speaks?: boolean; edited?: boolean; step?: number; kind?: string;
+}
+export interface DynEdge {
+  id: string; s: string; o: string; type: string; layer: Layer; status: string; provenance: DynNode["provenance"]; confidence?: number; directed: boolean; description?: string;
+  evidence_ids?: string[]; strength?: number; polarity?: string;
+}
+export interface Snapshot {
+  id: string; case_id: string; parent_id: string | null; number: number; reason: string; note: string; version_id: string | null; simulation_id: string | null; step: number | null;
+  event_seq: number | null; reaction_run_id: string | null; graph_version: number; created_by: string; created_at: string; content_hash: string; integrity: "verified" | "mismatch";
+  counts: Record<Layer, { nodes: number; edges: number }>;
+}
+export interface DynGraph {
+  nodes: DynNode[]; edges: DynEdge[]; counts: Record<Layer, { nodes: number; edges: number }>; layers: Layer[]; labels: Record<Layer, string>;
+  meta: { research: { version_id: string | null; version_label: string | null; content_hash: string | null; unavailable: boolean }; reactions: { run_id: string | null; run_number: number | null; mode: string | null };
+    simulation: { run_id: string; run_name: string; attempt: number; step: number; seq: number; graph_version: number } | null };
+  view: { mode: "live" | "snapshot"; snapshot: Snapshot | null };
+}
+export interface GraphEvent {
+  id: string; case_id: string; run_id: string; attempt: number; seq: number; step: number; ts: string; event_type: string; actor_ids: string[]; description: string;
+  nodes: string[]; edges: string[]; before: Record<string, unknown>; after: Record<string, unknown>; trigger_event_id: string | null; provenance: string; graph_version: number;
+}
+export type TimelineItem = { kind: "snapshot"; ts: string; step: number | null; snapshot: Snapshot } | { kind: "event"; ts: string; step: number; event: GraphEvent };
+export interface Timeline {
+  items: TimelineItem[]; total: number; steps: { step: number; events: number; types: Record<string, number>; snapshot_ids: string[] }[];
+  simulation: { id: string; name: string; attempt: number } | null; event_types: string[]; agents: { id: string; name: string }[];
+}
+export interface DiffSide { added: { id: string; label: string; type: string; layer: Layer }[]; removed: { id: string; label: string; type: string; layer: Layer }[];
+  changed: { id: string; label: string; type: string; layer: Layer; fields: Record<string, [unknown, unknown]> }[] }
+export interface SnapshotDiff {
+  a: { id: string; label: string }; b: { id: string; label: string }; layers: Record<Layer, { nodes: DiffSide; edges: DiffSide }>;
+  summary: Record<Layer, { added: number; removed: number; changed: number }>; comparable: { research: boolean };
+}
+export interface EntityContext { reactions: Reaction[]; events: GraphEvent[] }
