@@ -126,14 +126,16 @@ def test_trigger_repost_and_reaction_graph():
         def scalars(self, _q): return iter(sorted(self.rows, key=lambda e: e.round))
 
     db = FakeDb()
-    created = reactions.trigger(db, sim, agent_id="a1", action="REPOST", platform="microblog", target=post, content="", react=False, use_llm=False, actor="me")
+    created, _ = reactions.trigger(db, sim, agent_id="a1", action="REPOST", platform="microblog", target=post, content="", react=False, use_llm=False, actor="me")
     assert created[0].action == "REPOST" and created[0].content == post.content and post.reposts == 1
     g = reactions.cascade_graph(db, sim, ["se_root"])
     assert {"source": created[0].id, "target": "se_root", "type": "REPOST_OF"} in g["links"]
     assert any(n["id"] == "a1" and n["type"] == "persona" for n in g["nodes"])
-    created2 = reactions.trigger(db, sim, agent_id="a0", action="CREATE_POST", platform="microblog", target=None, content="", react=True, use_llm=False, actor="me")
+    created2, responses2 = reactions.trigger(db, sim, agent_id="a0", action="CREATE_POST", platform="microblog", target=None, content="", react=True, use_llm=False, actor="me")
     assert created2[0].generated_by.startswith("analyst-trigger") and all(e.round > created[0].round for e in created2)
     assert all(e.agent_id != "a0" for e in created2[1:])  # reactions come from other personas
+    assert {r["event_id"] for r in responses2} == {e.id for e in created2[1:]}  # every reaction explains itself
+    assert all(r["role"] == "bystander" and r["reason"] for r in responses2)
 
 
 def test_ai_agent_mode_applies_model_decisions(monkeypatch):

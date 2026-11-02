@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, ChevronDown, ChevronRight, Edit3, FileText, Trash2 } from "lucide-react";
 import { api, type Case, type EntityType, type Job } from "../api";
 import { useAuth } from "../auth";
+import { useWorkspace } from "../hooks";
 import { ShapeIcon, useToast } from "../components/ui";
 import { useSystem } from "../hooks";
 import { ETYPES, TYPE_KEYS, fmtBytes } from "../vocab";
@@ -31,6 +32,8 @@ export default function NewCase() {
   const [title, setTitle] = useState("");
   const [adv, setAdv] = useState(false);
   const [more, setMore] = useState({ description: "", objective: "", tags: "", visibility: "Team", scope_type: "country" });
+  const ws = useWorkspace();
+  useEffect(() => { if (ws.data) setMore(x => ({ ...x, visibility: ws.data.default_case_visibility })); }, [ws.data]);
   const [types, setTypes] = useState<Set<EntityType>>(new Set(TYPE_KEYS.filter(t => t !== "document")));
   const [pasting, setPasting] = useState(false);
   const [busy, setBusy] = useState("");

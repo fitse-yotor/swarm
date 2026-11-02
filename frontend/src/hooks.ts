@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api, type Case, type Conversation, type Environment, type Job, type Report, type Simulation, type SystemStatus } from "./api";
+import { store } from "./prefs";
+import { api, type Case, type Conversation, type Environment, type Job, type Report, type Simulation, type SystemStatus, type Workspace } from "./api";
 
 const live = (j?: Job | null) => !!j && (j.status === "queued" || j.status === "running");
 
@@ -36,6 +37,12 @@ export const useConvs = (caseId: string | null) =>
 export const isLive = live;
 
 /** Current color theme; re-renders when the shell toggles <html data-theme>. Canvas/WebGL views read colors from it. */
+/** Switch the colour theme everywhere (useTheme subscribers follow the <html data-theme> attribute). */
+export function applyTheme(t: string) {
+  document.documentElement.dataset.theme = t;
+  store("theme", t);
+}
+
 export function useTheme(): string {
   const [theme, setTheme] = useState(() => document.documentElement.dataset.theme ?? "dark");
   useEffect(() => {
@@ -45,3 +52,7 @@ export function useTheme(): string {
   }, []);
   return theme;
 }
+
+/** Workspace name and defaults (cached; the shell loads it on every page). */
+export const useWorkspace = () =>
+  useQuery({ queryKey: ["workspace"], queryFn: () => api.get<Workspace>("/workspace"), staleTime: 60_000 });

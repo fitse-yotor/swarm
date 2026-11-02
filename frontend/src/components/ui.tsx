@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { AlertTriangle, X } from "lucide-react";
-import type { ClaimStatus, EntityType } from "../api";
+import { AlertTriangle, CloudOff, RefreshCw, X } from "lucide-react";
+import { ApiError, type ClaimStatus, type EntityType } from "../api";
 import { avatarBg, ETYPES, initials, pct, STATUS, type Shape } from "../vocab";
 
 const SHAPE_PATHS: Record<Shape, (c: string) => ReactNode> = {
@@ -13,6 +13,9 @@ const SHAPE_PATHS: Record<Shape, (c: string) => ReactNode> = {
   pentagon: c => <polygon points="6,0.6 11.5,4.6 9.4,11.2 2.6,11.2 0.5,4.6" fill={c} />,
   ring: c => <circle cx="6" cy="6" r="4" fill="none" stroke={c} strokeWidth="2.4" />,
   doc: c => <rect x="1.5" y="0.8" width="9" height="10.4" rx="1" fill="none" stroke={c} strokeWidth="1.8" />,
+  star: c => <polygon points="6,0.4 7.5,4.2 11.6,4.4 8.4,7 9.5,11 6,8.8 2.5,11 3.6,7 0.4,4.4 4.5,4.2" fill={c} />,
+  octagon: c => <polygon points="3.6,0.8 8.4,0.8 11.2,3.6 11.2,8.4 8.4,11.2 3.6,11.2 0.8,8.4 0.8,3.6" fill="none" stroke={c} strokeWidth="2" />,
+  cross: c => <polygon points="4.4,0.8 7.6,0.8 7.6,4.4 11.2,4.4 11.2,7.6 7.6,7.6 7.6,11.2 4.4,11.2 4.4,7.6 0.8,7.6 0.8,4.4 4.4,4.4" fill={c} />,
 };
 
 export const ShapeIcon = ({ type, size = 12 }: { type: EntityType; size?: number }) => (
@@ -44,6 +47,15 @@ export const Avatar = ({ name, size = 28 }: { name: string; size?: number }) => 
 
 export const Empty = ({ icon, title, text, children }: { icon: ReactNode; title: string; text: string; children?: ReactNode }) => (
   <div className="empty">{icon}<h3>{title}</h3><p className="small" style={{ maxWidth: "44ch" }}>{text}</p>{children}</div>
+);
+
+/** True when the API answered 503: a backing service (e.g. the graph database) is down, not "no data". */
+export const isUnavailable = (e: unknown) => e instanceof ApiError && e.status === 503;
+
+export const Unavailable = ({ error, onRetry, retrying }: { error: unknown; onRetry: () => void; retrying?: boolean }) => (
+  <Empty icon={<CloudOff />} title="Graph database unavailable" text={(error as Error).message}>
+    <button className="btn" onClick={onRetry} disabled={retrying}><RefreshCw />{retrying ? "Retrying…" : "Try again"}</button>
+  </Empty>
 );
 
 export const DemoFlag = ({ children }: { children: ReactNode }) => <div className="demo-flag"><AlertTriangle />{children}</div>;

@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     celery_eager: bool = False
 
     jwt_secret: str = "change-me-in-production"
+    # Lists the seeded demo accounts on the sign-in page (python -m app.seed). Turn off for any shared instance.
+    demo_accounts: bool = True
     jwt_minutes: int = 60 * 8
 
     storage_dir: Path = Path("./var/storage")
@@ -44,6 +46,14 @@ class Settings(BaseSettings):
 
     chunk_target_chars: int = 1200
     chunk_overlap_chars: int = 150
+
+
+WEAK_SECRETS = {"change-me-in-production", "change-me", "secret", "changeme"}
+
+
+def jwt_secret_is_weak(secret: str) -> bool:
+    """True for the shipped placeholders or anything shorter than 32 characters (HS256 key guidance)."""
+    return secret in WEAK_SECRETS or len(secret) < 32
 
 
 @lru_cache

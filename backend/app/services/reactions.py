@@ -5,10 +5,15 @@ Reaction graph kinds (all built from stored SimEvent rows, nothing is generated)
 - post:    the cascade under one post: the post, every comment / repost / like on it, replies to replies.
 - agent:   everything one persona posted plus the reactions it drew.
 
+- overlay: the original actor network (agents and their graph relations) with posts, comments and reactions
+  drawn on top, so interaction can be read against who is allied with or opposed to whom.
+
 Triggering lets an analyst make one persona post, comment, repost, like or dislike inside a finished
-run, optionally letting the other personas react. Reactions are rule-based (stance closeness decides
-agree / disagree / like / repost), seeded per event so the same trigger reproduces, and every row is
-labelled with who produced it (`analyst-trigger`, `reaction-model`, or the LLM name).
+run, optionally letting the other personas react. When the trigger is a comment, the author of the post
+answers first, as their behaviour profile decides (reply, like or let it pass). Everyone else then reacts
+from their own profile and stance closeness. All of it is seeded per event so the same trigger reproduces,
+every row is labelled with who produced it (`analyst-trigger`, `reaction-model`, or the LLM name), and the
+reason behind each decision is returned with the result.
 """
 import hashlib
 import math
@@ -19,7 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import SimEvent, Simulation, new_id
-from app.services import llm
+from app.services import behavior, llm
 from app.services.simulation import POSTS, REPLIES, lean
 
 CONTENT_ACTIONS = ("CREATE_POST", "CREATE_COMMENT", "REPOST")
@@ -158,7 +163,8 @@ def _text_for(sim: Simulation, agent: dict, stance: float, action: str, target: 
 
 
 def trigger(db: Session, sim: Simulation, *, agent_id: str, action: str, platform: str, target: SimEvent | None, content: str,
-            react: bool, use_llm: bool, actor: str) -> list[SimEvent]:
+            react: bool, use_llm: bool, actor: str) -> tuple[list[SimEvent], list[dict]]:
+    """Make one persona act. Returns (events created, one entry per agent that was considered, with its reason)."""
     agents = agents_of(sim)
     agent = agents[agent_id]
     series = {k: list(v) for k, v in (sim.stats.get("series") or {}).items()}
@@ -195,33 +201,110 @@ def trigger(db: Session, sim: Simulation, *, agent_id: str, action: str, platfor
     root = emit(agent_id, agent["name"], action, text, target, stances[agent_id], by, rnd, plat)
     db.flush()
 
+    responses: list[dict] = []
+    eps = sim.config["config"].get("epsilon", 0.6)
+    verb = {"CREATE_COMMENT": "replied", "LIKE_POST": "liked", "REPOST": "reposted", "DISLIKE_POST": "disliked"}
+
+    def note(a: dict, ev: SimEvent | None, decision: str, reason: str, role: str) -> None:
+        responses.append({"agent_id": a["id"], "agent_name": a["name"], "profile": behavior.resolve(a)["label"], "role": role,
+                          "decision": decision, "reason": reason, "event_id": ev.id if ev else None})
+
+    owner_id = None
+    # 1. The author of the post that was just answered decides first.
+    if react and action == "CREATE_COMMENT" and target is not None:
+        owner = agents.get(target.agent_id)
+        if owner is not None and owner.get("speaks", True) and owner["id"] != agent_id:
+            owner_id = owner["id"]
+            _influence(sim, stances, owner_id, root.stance, agent.get("influence", 0.5), 0.7)  # they read it either way
+            d = behavior.decide_response(owner, stances[owner_id], root.stance, eps, rng)
+            if d["action"] is None:
+                note(owner, None, "ignored", d["reason"], "author")
+            else:
+                txt, by2 = "", "reaction-model · reply-back"
+                if d["action"] == "CREATE_COMMENT":
+                    txt, used = _text_for(sim, owner, stances[owner_id], d["action"], root, rng, use_llm)
+                    by2 = used if used != "template" else by2
+                ev = emit(owner_id, owner["name"], d["action"], txt, root, stances[owner_id], by2, rnd + 1, plat)
+                note(owner, ev, verb[d["action"]], d["reason"], "author")
+
+    # 2. Everyone else reacts from their own profile; people linked to the actor notice sooner.
     if react and action in CONTENT_ACTIONS:
-        eps = sim.config["config"].get("epsilon", 0.6)
-        pool = [a for a in agents.values() if a.get("speaks", True) and a["id"] != agent_id]
+        linked = {x["o"] if x["s"] == agent_id else x["s"] for x in sim.config.get("links", [])
+                  if agent_id in (x["s"], x["o"]) and x.get("kind") != "opponent"}
+        pool = [a for a in agents.values() if a.get("speaks", True) and a["id"] not in (agent_id, owner_id)]
         rng.shuffle(pool)
         for a in pool:
             if len(created) > 13:
                 break
-            p = min(0.9, 0.2 + 0.55 * a.get("activity", 0.5)) * (0.6 + 0.4 * agent.get("influence", 0.5))
-            if rng.random() > p:
+            p = min(0.9, 0.2 + 0.55 * a.get("activity", 0.5)) * (0.6 + 0.4 * agent.get("influence", 0.5)) * (1.35 if a["id"] in linked else 1)
+            if rng.random() > min(p, 0.95):
                 continue
-            close = abs(stances[a["id"]] - root.stance) < eps
-            kind = rng.choices(["LIKE_POST", "REPOST", "CREATE_COMMENT"], [0.45, 0.2, 0.35] if close else [0.0, 0.0, 0.5])[0]
-            if not close and plat == "forum" and rng.random() < 0.5:
-                kind = "DISLIKE_POST"
-            elif not close and kind != "CREATE_COMMENT":
-                kind = "CREATE_COMMENT"
+            gap = abs(stances[a["id"]] - root.stance)
+            agrees = gap < eps
+            acts, w = behavior.reaction_weights(a, agrees, plat)
+            kind = rng.choices(acts, w)[0]
             _influence(sim, stances, a["id"], root.stance, agent.get("influence", 0.5), 0.7)
-            t2, b2 = ("", "reaction-model")
+            t2 = ""
             if kind == "CREATE_COMMENT":
                 t2, _ = _text_for(sim, a, stances[a["id"]], kind, root, rng, False)
             elif kind == "REPOST":
                 t2 = root.content
-            emit(a["id"], a["name"], kind, t2, root, stances[a["id"]], b2, rnd + 1, plat)
+            ev = emit(a["id"], a["name"], kind, t2, root, stances[a["id"]], "reaction-model", rnd + 1, plat)
+            note(a, ev, verb[kind], f"{behavior.resolve(a)['label']}: {'agrees' if agrees else 'disagrees'} (stance gap {gap:.2f}), "
+                 f"so {verb[kind].replace('replied', 'replies').replace('liked', 'likes').replace('reposted', 'reposts').replace('disliked', 'dislikes')}", "bystander")
 
     for aid, v in stances.items():
         if series.get(aid):
             series[aid][-1] = round(v, 3)
     sim.stats = {**sim.stats, "series": series, "manual_events": sim.stats.get("manual_events", 0) + len(created)}
     db.flush()
-    return created
+    return created, responses
+
+
+# ---------------------------------------------------------------- overlay on the original actor network
+def thread_root(by_id: dict[str, SimEvent], event_id: str) -> str:
+    """Climb from a comment to the post that started its thread."""
+    seen = {event_id}
+    cur = by_id[event_id]
+    while cur.target_id and cur.target_id in by_id and cur.target_id not in seen and by_id[cur.target_id].action in CONTENT_ACTIONS:
+        cur = by_id[cur.target_id]
+        seen.add(cur.id)
+    return cur.id
+
+
+def overlay_graph(db: Session, sim: Simulation, post_id: str | None = None, agent_id: str | None = None) -> dict:
+    """The actor network from the original graph (base layer) with posts and reactions drawn on it (interaction layer).
+
+    Whole run: the 20 most engaged posts and their cascades. One post: its whole thread. One agent: all they posted.
+    Every agent is always present so the cascade can be read against allies and opponents.
+    """
+    evs = events_of(db, sim.id)
+    by_id = {e.id: e for e in evs}
+    agents = agents_of(sim)
+    focus: list[str] = []
+    if post_id:
+        roots = [thread_root(by_id, post_id)]
+        focus = [post_id]
+        scope = "thread"
+    elif agent_id:
+        roots = [e.id for e in evs if e.agent_id == agent_id and e.action in ("CREATE_POST", "CREATE_COMMENT")]
+        scope = "agent"
+    else:
+        started = [e for e in evs if e.action in ("CREATE_POST", "CREATE_COMMENT") and e.agent_id != "src" and not e.target_id]
+        roots = [e.id for e in sorted(started, key=lambda e: e.likes + 2 * e.reposts + 2 * e.replies, reverse=True)[:20]]
+        scope = "run"
+    g = cascade_graph(db, sim, roots)
+    nodes = {n["id"]: {**n, "layer": "interaction"} for n in g["nodes"] if n["type"] not in ("persona", "actor")}
+    tallies = behavior.counts_by_agent(evs)
+    for aid, a in agents.items():
+        n = _agent_node(a, aid, a["name"], sim)
+        n.update(layer="base", profile=behavior.resolve(a)["label"], actions=tallies.get(aid, {}), speaks=a.get("speaks", True),
+                 lean=lean(n["stance"]))
+        nodes[aid] = n
+    links = [{**lk, "layer": "interaction"} for lk in g["links"] if lk["source"] in nodes and lk["target"] in nodes]
+    for lk in sim.config.get("links", []):
+        if lk["s"] in nodes and lk["o"] in nodes:
+            links.append({"source": lk["s"], "target": lk["o"], "type": lk.get("relation") or lk["kind"].upper(),
+                          "kind": lk["kind"], "layer": "base"})
+    return {"scope": scope, "nodes": list(nodes.values()), "links": links, "roots": g["roots"], "focus": focus,
+            "events": g["events"]}

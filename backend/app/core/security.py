@@ -38,8 +38,8 @@ def verify_password(pw: str, hashed: str) -> bool:
     return bcrypt.checkpw(pw.encode(), hashed.encode())
 
 
-def create_token(user_id: str, tenant_id: str) -> str:
-    exp = datetime.now(UTC) + timedelta(minutes=settings.jwt_minutes)
+def create_token(user_id: str, tenant_id: str, minutes: int | None = None) -> str:
+    exp = datetime.now(UTC) + timedelta(minutes=minutes or settings.jwt_minutes)
     return jwt.encode({"sub": user_id, "tid": tenant_id, "exp": exp}, settings.jwt_secret, algorithm="HS256")
 
 

@@ -78,6 +78,76 @@ hands over to the final graph.
 
 Choose the engine in *Start simulation*. In AI mode the rules only decide who gets a turn each round (agents that have not acted yet get priority); a failed model call skips the turn rather than faking it. Edit the briefing file to change what every agent knows, or add case-specific facts under *Extra background for AI agents* in the environment config. A smaller model (e.g. set `OLLAMA_AGENT_MODEL`) makes AI runs several times faster.
 
+## Reactions, one evolving graph, snapshots and a timeline
+
+Four kinds of content are kept apart, and every graph item says which it is (`layer` + `provenance`):
+
+| Layer | Provenance | What it is |
+|---|---|---|
+| research | `sourced` | Approved entities and relationships with their source passages. Only approved items ever appear. |
+| reaction | `generated_hypothesis` | Possible actor responses generated from the approved graph. Never a verified statement. |
+| simulation | `simulation_generated` | Synthetic agents, their simulated relationships and statements. |
+| snapshot | n/a | An immutable copy of all three layers at a moment (SHA-256 `content_hash`, verified on read). |
+
+**Automatic reactions** (`services/reaction_gen.py`). Approving a graph version creates a snapshot and starts a reaction run in the
+background. Actors are chosen from the approved graph by structure (relationships, closeness to the case issue, evidence, match with
+the case question), not one per node. Each reaction stores the actor, trigger, connected entities, evidence ids, reasoning,
+confidence, assumptions labelled `evidence_supported` / `model_inferred` / `synthetic`, warnings, and the provider and template
+version that produced it. Output is validated against a typed schema and against the actor's own context (unknown ids dropped, a
+quotation must appear in the linked evidence). Re-running creates a new run; earlier runs and the analyst's review status are kept.
+With no language model configured the generator is a rule set that reads relationship types. It is stored as mode `demo-rules`
+and labelled **demo output, not AI analysis** everywhere. Reviewing: `generated → reviewed → selected | excluded`, edits are recorded.
+Selected reactions are attached to their agents as `hypotheses` when an environment is built (never as `facts`).
+
+**One evolving graph** (`services/dynamic_graph.py`). The simulation layer is a pure fold over append-only `graph_events`
+(`STATEMENT_PUBLISHED`, `RESPONDED_TO`, `REACTED_TO_EVENT`, `POSITION_CHANGED`, `RELATIONSHIP_FORMED/STRENGTHENED/WEAKENED`,
+`ALLIANCE_FORMED`), each with run, step, actors, affected node/edge ids, before/after values, the triggering simulation action and
+the dynamic graph version it created. The "current graph" is a projection (approved research + reactions + the fold), a snapshot is
+the same projection frozen, and a simulation has no code path that writes to the research layer. A retried run opens a new
+`attempt`; the old attempt's events and snapshots stay as history. Snapshots are taken when a graph is approved, after reactions
+are generated, at simulation start, every `snapshot_every` rounds (environment config, default 6), at completion, and on demand.
+
+**Simulation boundary.** The built-in engine reports through `Recorder` (`dynamic_graph.py`); an external engine (for example an
+OASIS adapter) posts typed events to `POST /simulations/{id}/graph-events`, which validates them against the run's agents and
+applies them all-or-nothing. Nothing in the graph UI knows how a simulation runs. No external engine is bundled.
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /cases/{id}/reaction-runs` · `GET …/reaction-runs` · `GET /reaction-runs/{id}` | Generate (new run each time), list, check progress |
+| `GET /cases/{id}/reactions` (filters, `limit`/`offset`) · `GET /reactions/{id}` | Browse; one reaction with its evidence and basis |
+| `PATCH /reactions/{id}` · `POST /cases/{id}/reactions/bulk` | Edit, review, select, exclude |
+| `GET /cases/{id}/dynamic-graph` (`snapshot_id`, `upto_seq`, `simulation_id`, `layers`, `statements`) | The live graph, or the graph at a snapshot or event |
+| `GET /cases/{id}/graph-entity/{node}` | Reactions and simulation events for one entity |
+| `GET/POST /cases/{id}/snapshots` · `GET /snapshots/{id}` · `GET …/snapshots/compare?a=&b=live` | Snapshots (append-only) and per-layer diff |
+| `GET /cases/{id}/timeline` · `GET /simulations/{id}/graph-events` · `POST …/graph-events` · `GET /graph-events/{id}` | Timeline, events, ingestion |
+
+UI: **Reactions** (`/cases/:id/reactions`) and **Dynamic graph** (`/cases/:id/dynamic`) in the sidebar. New tables (`reaction_runs`,
+`reactions`, `graph_events`, `graph_snapshots`) are created at API start like the rest of the schema; there are no Alembic migrations yet.
+
+## Agent behaviour and reactions
+
+(Behaviour profiles and triggered replies for simulated agents; not the same as the generated reaction hypotheses above.)
+
+Every agent has a **behaviour profile** (Environment → click an agent → *Behaviour*): a preset (Balanced, Broadcaster, Commenter,
+Debater, Amplifier, Lurker) plus sliders for how much it posts, comments, reposts, likes, dislikes and follows, how often it
+answers a comment on its own post, and *how* it answers (replies to anyone / rebuts disagreement and nods at agreement / likes
+agreement and rarely answers disagreement / never answers). Defaults come from the agent's kind and stance (institutions and
+governments broadcast; strongly opinionated people debate). The simulation engine uses these instead of one global action table,
+and an agent that has been commented on answers first, as its profile decides (`behavior.py`).
+
+**Trigger a persona** (simulation page): pick a post, make a persona comment on it, and the *post's author* decides what to do
+(reply, like, or let it pass) from its own profile and the stance gap to the commenter. The other personas then react from their
+profiles. Every decision comes back with its reason, e.g. "Debater, answers 100% of comments: disagrees and rebuts (stance gap
+1.63 ≥ ε 0.6)". Triggered rows are labelled `analyst-trigger` / `reaction-model`.
+
+**Reaction graph → On the graph** draws the original actor network (agents and their ally / opponent relations from the knowledge
+graph) with posts, comments, reposts and likes on top. Focus on the most engaged threads, one thread, or one persona. *Camp*
+colours by final stance and *Cluster* pulls supporters, neutrals and opponents into separate groups. The graph build page has the
+same *Cluster* control (by entity type while building, by detected community once finished).
+
+The 3D graph, cluster layout and build animation are implemented in this repository. They were **not** copied from MiroFish, which
+is AGPL-3.0: using its code would put this project under the same licence.
+
 ## Graph and simulation interaction
 
 - **Sidebar:** icons only (hover for a description). Case icons (graph, review, documents, stages 2-5) appear only while a case is open; create a case from the Dashboard or Cases page.
@@ -85,6 +155,42 @@ Choose the engine in *Start simulation*. In AI mode the rules only decide who ge
 - **Reaction graphs** (simulation page, *Reaction graph · 3D*): the whole run (who reacted to whom), one persona (what it posted and who reacted), or one post's cascade (comments, reposts, likes, replies to replies).
 - **Trigger a persona** (simulation card *Trigger a persona*): make a synthetic persona post, comment, repost, like or dislike inside a finished run, optionally letting the others react (rule-based by stance closeness). Events are labelled `analyst-trigger` / `reaction-model`.
 - **Reports** list every persona's actions (posts, comments, reposts, likes) and the reactions under the most-engaged posts.
+
+## Administration
+
+Users with the `admin.access` permission (the Administrator role) get a shield icon in the sidebar that opens `/admin`:
+
+- **Users:** add users (with a password you choose or a generated temporary one shown once), edit name, email and role,
+  suspend or reactivate, reset passwords, and delete accounts that own no cases (suspend those instead).
+- **Roles:** the five built-in roles plus custom ones, as a permission matrix. Built-in roles keep their names; the
+  Administrator role always holds every permission. A role in use cannot be deleted; renaming a role moves its users with it.
+- **Activity:** the workspace audit log, filterable by kind (sign-ins, administration, cases, graph, simulation and reports),
+  person and free text, with paging.
+- **Settings:** workspace name, default case visibility, session length, minimum password length, and the defaults new
+  environments start from (rounds, LLM personas and posts per round, real actors context-only). A System panel shows live health
+  for PostgreSQL, Neo4j, the job queue and the local LLM, plus model and storage details.
+
+Every user also has **My account** (`/account`, from the avatar): change display name and password, switch theme, sign out,
+and see recent sign-ins and account changes.
+
+The API refuses changes that would leave the workspace without an active administrator, and administrators cannot suspend,
+delete or demote themselves. Every change is written to the audit log (`admin.*` actions). Roles and settings live in the new
+`roles` and `tenant_settings` tables, created at API start; an existing workspace gets the built-in roles on first use.
+
+## Phones and tablets
+
+Below 720 px the sidebar becomes a bottom tab bar and the top bar shows the logo, the case switcher, the page title and your
+avatar (account, theme and sign-out live on `/account`). Tables that hold actions (such as users) turn into cards, metric strips
+and forms collapse to fewer columns, and stage pages (environments, simulations, reports) stack the canvas above the workbench.
+
+## When a service is down
+
+If Neo4j is unreachable, graph endpoints answer **503** with a readable message and the UI shows "Graph database unavailable"
+with a retry button instead of an error. Report chat still answers from the stored report. `GET /api/v1/system/status`
+includes up/down flags for each service; details are on the admin Settings page.
+
+The sign-in page lists the seeded demo accounts from the API (`GET /api/v1/auth/demo-accounts`) only while
+`DEMO_ACCOUNTS=true` (the default for local development). Set it to `false` on any shared instance.
 
 ## Run it locally
 
@@ -116,7 +222,7 @@ In containers: `docker compose up --build`. The API and worker reach Ollama on t
 
 ## Tests
 ```bash
-cd backend && EMBEDDING_PROVIDER=hash .venv/bin/python -m pytest      # parsing, chunking, quotes, resolution, uploads, spaCy relations, simulation determinism, GraphRAG citation checks
+cd backend && EMBEDDING_PROVIDER=hash .venv/bin/python -m pytest      # parsing, chunking, quotes, resolution, uploads, spaCy relations, simulation determinism, GraphRAG citation checks; admin API tests need PostgreSQL
 cd frontend && npm run typecheck && npm run build
 ```
 

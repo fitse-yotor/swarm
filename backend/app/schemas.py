@@ -40,7 +40,7 @@ class CaseIn(BaseModel):
     objective: str = Field("", max_length=3000)
     scope_type: ScopeType | None = None
     tags: list[str] = []
-    visibility: Literal["Private", "Team", "Organization"] = "Team"
+    visibility: Literal["Private", "Team", "Organization"] | None = None  # None: the workspace default
     extract_types: list[EntityType] = ["person", "organization", "country", "location", "event", "policy", "topic"]
 
 

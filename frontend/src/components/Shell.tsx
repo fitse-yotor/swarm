@@ -1,10 +1,11 @@
 import { useEffect, useState, type FocusEvent, type MouseEvent } from "react";
 import { NavLink, Outlet, useLocation, useMatch, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { BookOpen, FileText, Folder, Inbox, Layers, LayoutDashboard, LogOut, MessageSquare, Moon, Play, Share2, Shield,
+import { BookOpen, FileText, Folder, GitBranch, Inbox, Layers, Lightbulb, LayoutDashboard, LogOut, MessageSquare, Moon, Play, Share2, Shield,
   Sun } from "lucide-react";
 import { api, type Case } from "../api";
 import { useAuth } from "../auth";
+import { applyTheme, useTheme, useWorkspace } from "../hooks";
 import { load, store } from "../prefs";
 import { Avatar } from "./ui";
 
@@ -21,15 +22,15 @@ export const useLastCase = () => {
   return id ?? load<string | null>("case", null);
 };
 
-const TITLES: [RegExp, string][] = [[/\/graph$/, "Graph explorer"], [/\/review$/, "Review queue"], [/\/documents$/, "Documents"],
+const TITLES: [RegExp, string][] = [[/\/graph$/, "Graph explorer"], [/\/dynamic$/, "Dynamic graph"], [/\/reactions$/, "Reactions"], [/\/review$/, "Review queue"], [/\/documents$/, "Documents"],
   [/\/build\//, "Graph build"], [/\/environments/, "Environments"], [/\/simulations/, "Simulations"], [/\/reports/, "Reports"],
-  [/\/interaction/, "Conversations"], [/^\/cases\/new/, "Create case"], [/^\/cases\/[^/]+$/, "Case"], [/^\/cases$/, "Cases"], [/^\/$/, "Dashboard"]];
+  [/\/interaction/, "Conversations"], [/^\/cases\/new/, "Create case"], [/^\/cases\/[^/]+$/, "Case"], [/^\/cases$/, "Cases"], [/^\/$/, "Dashboard"], [/^\/admin/, "Administration"], [/^\/account/, "My account"]];
 
 type Tip = { label: string; desc: string; top: number } | null;
 
 export default function Shell() {
   const { user, can, logout } = useAuth();
-  const [theme, setTheme] = useState(() => load("theme", "dark"));
+  const theme = useTheme();
   const [tip, setTip] = useState<Tip>(null);
   const loc = useLocation();
   const nav = useNavigate();
@@ -37,10 +38,11 @@ export default function Shell() {
   const routeCase = useMatch("/cases/:caseId/*");
   const caseId = routeCase?.params.caseId && routeCase.params.caseId !== "new" && routeCase.params.caseId !== "wizard" ? routeCase.params.caseId : null;
   const cases = useQuery({ queryKey: ["cases"], queryFn: () => api.get<Case[]>("/cases") });
+  const ws = useWorkspace();
+  const wsName = ws.data?.name ?? "Workspace";
   const current = cases.data?.find(c => c.id === caseId);
   const scoped = /^\/cases\/(?!new)[^/]+/.test(loc.pathname);
 
-  useEffect(() => { document.documentElement.dataset.theme = theme; store("theme", theme); }, [theme]);
   useEffect(() => setTip(null), [loc.pathname]);
 
   const caseLink = (sub: string) => (caseId ? `/cases/${caseId}/${sub}` : "/cases");
@@ -61,13 +63,15 @@ export default function Shell() {
   return (
     <div className="shell collapsed">
       <aside className="side rail" aria-label="Primary">
-        <div className="brand" {...tipFor("Lattice", "Case intelligence · Northbridge Institute workspace")} tabIndex={0}><Logo /></div>
+        <div className="brand" {...tipFor("Lattice", `Case intelligence · ${wsName}`)} tabIndex={0}><Logo /></div>
         <nav className="nav">
           <NavLink to="/" end {...tipFor("Dashboard", "Workspace overview: metrics, workflow progress and recent activity")}><LayoutDashboard /></NavLink>
           <NavLink to="/cases" end {...tipFor("Cases", "All cases: search, filter, archive and restore")}><Folder /></NavLink>
           {caseId && <>
           <hr />
           <NavLink to={caseLink("graph")} {...tipFor("Graph explorer", `Stage 1 · Explore the knowledge graph, inspect evidence and ask the graph.${needCase}`)}><Share2 /></NavLink>
+          <NavLink to={caseLink("reactions")} {...tipFor("Reactions", `AI-generated hypotheses about how actors might respond, for review and selection.${needCase}`)}><Lightbulb /></NavLink>
+          <NavLink to={caseLink("dynamic")} {...tipFor("Dynamic graph", `One evolving graph: research, reactions and simulation layers, with snapshots and a timeline.${needCase}`)}><GitBranch /></NavLink>
           <NavLink to={caseLink("review")} {...tipFor("Review queue", `Stage 1 · Approve, reject, edit and merge extracted claims.${needCase}`)}><Inbox /></NavLink>
           <NavLink to={caseLink("documents")} {...tipFor("Documents", `Stage 1 · Upload sources and read them with highlighted evidence.${needCase}`)}><BookOpen /></NavLink>
           <hr />
@@ -75,18 +79,19 @@ export default function Shell() {
           <NavLink to={caseLink("simulations")} {...tipFor("Simulations", `Stage 3 · Run the two-platform simulation and watch opinions shift.${needCase}`)}><Play /></NavLink>
           <NavLink to={caseLink("reports")} {...tipFor("Reports", `Stage 4 · Findings from a run with source evidence; edit, approve, export.${needCase}`)}><FileText /></NavLink>
           <NavLink to={caseLink("interaction")} {...tipFor("Conversations", `Stage 5 · Chat with the report agent, a simulated agent or the graph.${needCase}`)}><MessageSquare /></NavLink></>}
-          {can("admin.access") && <><hr /><a aria-disabled="true" tabIndex={0} style={{ opacity: .45, cursor: "default" }} {...tipFor("Administration", "Users, roles and settings — not built yet")}><Shield /></a></>}
+          {can("admin.access") && <><hr /><NavLink to="/admin" {...tipFor("Administration", "Users, roles and workspace settings")}><Shield /></NavLink></>}
         </nav>
         <div className="side-foot">
-          <button className="btn ghost icon sm" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} {...tipFor("Theme", `Switch to ${theme === "dark" ? "light" : "dark"} mode`)}>{theme === "dark" ? <Sun /> : <Moon />}</button>
+          <button className="btn ghost icon sm" onClick={() => applyTheme(theme === "dark" ? "light" : "dark")} {...tipFor("Theme", `Switch to ${theme === "dark" ? "light" : "dark"} mode`)}>{theme === "dark" ? <Sun /> : <Moon />}</button>
           <button className="btn ghost icon sm" onClick={logout} {...tipFor("Sign out", `Signed in as ${user.name}`)}><LogOut /></button>
-          <div className="me" tabIndex={0} {...tipFor(user.name, `${user.role} · ${user.email}`)}><Avatar name={user.name} /></div>
+          <NavLink to="/account" className="me" {...tipFor(user.name, `${user.role} · ${user.email} · My account`)}><Avatar name={user.name} /></NavLink>
         </div>
       </aside>
       {tip && <div className="rail-tip" role="tooltip" style={{ top: tip.top }}><b>{tip.label}</b><span>{tip.desc}</span></div>}
       <div className="main">
         <header className="top">
-          <div className="crumbs"><NavLink to="/" className="muted">Northbridge</NavLink>
+          <NavLink to="/" className="top-brand" aria-label="Dashboard"><Logo /></NavLink>
+          <div className="crumbs"><NavLink to="/" className="muted">{wsName}</NavLink>
             {scoped && current && <><span className="sep">/</span>
               <select className="sel" aria-label="Current case" value={current.id}
                 style={{ height: 28, width: "auto", maxWidth: 260, borderColor: "transparent", background: "transparent", fontWeight: 600, paddingLeft: 4 }}
@@ -96,6 +101,7 @@ export default function Shell() {
               </select></>}
             <span className="sep">/</span><b>{title}</b></div>
           <span className="grow" />
+          <NavLink to="/account" className="top-me" aria-label={`My account · ${user.name}`}><Avatar name={user.name} size={30} /></NavLink>
         </header>
         <main className="view" id="view" tabIndex={-1}><Outlet /></main>
       </div>

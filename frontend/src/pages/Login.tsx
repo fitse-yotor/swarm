@@ -1,11 +1,12 @@
 import { useState, type FormEvent } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { api, type DemoAccount } from "../api";
 import { useAuth } from "../auth";
 import { Logo } from "../components/Shell";
 import { Avatar } from "../components/ui";
 
-// Demo workspace accounts created by `python -m app.seed` (password demo1234).
-const DEMO = [["Samuel Teklu", "analyst@lattice.demo", "Lead analyst"], ["Yusuf Adeyemi", "reviewer@lattice.demo", "Reviewer"],
-  ["Lena Brandt", "lena@lattice.demo", "Analyst"], ["Ines Carvalho", "viewer@lattice.demo", "Viewer"], ["Mira Okonjo", "admin@lattice.demo", "Administrator"]];
+// Seeded demo accounts (python -m app.seed, password demo1234). The API lists them only while DEMO_ACCOUNTS is on.
+const DEMO_PASSWORD = "demo1234";
 
 function Art() {
   const pts = Array.from({ length: 34 }, (_, i) => {
@@ -24,6 +25,7 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const demo = useQuery({ queryKey: ["demo-accounts"], queryFn: () => api.get<DemoAccount[]>("/auth/demo-accounts"), staleTime: Infinity, retry: false });
   const submit = async (e: FormEvent) => {
     e.preventDefault(); setErr(""); setBusy(true);
     try { await login(email, password); } catch (x) { setErr((x as Error).message); } finally { setBusy(false); }
@@ -40,9 +42,10 @@ export default function Login() {
         <div className="field"><label htmlFor="pw">Password</label><input id="pw" className="inp" type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} /></div>
         {err && <div className="small" style={{ color: "var(--err)" }} role="alert">{err}</div>}
         <button className="btn pri big" disabled={busy || !email || !password}>{busy ? "Signing in…" : "Sign in"}</button>
-        <div className="sec-t mt12">Demo accounts</div>
-        {DEMO.map(([n, em, role]) => <button type="button" key={em} className="acct" onClick={() => { setEmail(em); setPassword("demo1234"); }}>
-          <Avatar name={n} size={26} /><div className="grow"><div className="small" style={{ fontWeight: 600 }}>{n}</div><div className="xs dim">{role} · {em}</div></div></button>)}
+        {!!demo.data?.length && <>
+          <div className="sec-t mt12">Demo accounts</div>
+          {demo.data.map(a => <button type="button" key={a.email} className="acct" onClick={() => { setEmail(a.email); setPassword(DEMO_PASSWORD); }}>
+            <Avatar name={a.name} size={26} /><div className="grow" style={{ minWidth: 0 }}><div className="small" style={{ fontWeight: 600 }}>{a.name}</div><div className="xs dim trunc">{a.role} · {a.email}</div></div></button>)}</>}
       </form>
     </div>
   </div>;

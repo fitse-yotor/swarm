@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Activity, Plus, Share2, Upload } from "lucide-react";
@@ -33,7 +33,7 @@ export default function Dashboard() {
     <div className="page-head"><div className="grow"><h1>{hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening"}, {user!.name.split(" ")[0]}</h1>
       <p>{s ? (s.pending_reviews ? `${s.pending_reviews} graph claims are waiting for review across your cases.` : "All graph claims are reviewed.") : "Loading workspace…"}</p></div>
       {can("case.create") && <Link className="btn pri" to="/cases/new"><Plus />Create case</Link>}</div>
-    <div className="strip" role="list" style={{ gridTemplateColumns: `repeat(${metrics.length || 8},minmax(0,1fr))` }}>
+    <div className="strip" role="list" style={{ "--cols": metrics.length || 8 } as CSSProperties}>
       {metrics.map(([v, l, d]) => <div role="listitem" key={l}><div className="v">{v?.toLocaleString()}</div><div className="l">{l}</div>{d && <div className="d">{d}</div>}</div>)}</div>
     <div className="dash">
       <div className="col gap16" style={{ minWidth: 0 }}>

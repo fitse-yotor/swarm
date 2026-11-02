@@ -10,7 +10,7 @@ import { createNodeImageProgram } from "@sigma/node-image";
 import { downloadAsPNG } from "@sigma/export-image";
 import type { ClaimStatus, EntityType } from "../api";
 import { load, store } from "../prefs";
-import { ETYPES, TYPE_KEYS, cssVar, type Shape } from "../vocab";
+import { ALL_TYPE_KEYS, ETYPES, cssVar, type Shape } from "../vocab";
 import { glyph, withAlpha, type GlyphPalette } from "./shapes";
 
 export interface CanvasNode { id: string; label: string; type: EntityType; status: ClaimStatus; size: number; fill: string; community: string | null }
@@ -59,7 +59,7 @@ const SigmaCanvas = forwardRef<CanvasHandle, Props>(function SigmaCanvas(p, ref)
     g.forEachNode((id, a) => { before[id] = { x: a.x, y: a.y }; });
     const targets: Record<string, { x: number; y: number }> = {};
     if (kind === "circular") {
-      const order = [...g.nodes()].sort((a, b) => TYPE_KEYS.indexOf(g.getNodeAttribute(a, "etype")) - TYPE_KEYS.indexOf(g.getNodeAttribute(b, "etype")));
+      const order = [...g.nodes()].sort((a, b) => ALL_TYPE_KEYS.indexOf(g.getNodeAttribute(a, "etype")) - ALL_TYPE_KEYS.indexOf(g.getNodeAttribute(b, "etype")));
       const R = Math.max(160, order.length * 9);
       order.forEach((id, i) => { const a = (i / order.length) * Math.PI * 2 - Math.PI / 2; targets[id] = { x: Math.cos(a) * R, y: Math.sin(a) * R }; });
     } else {

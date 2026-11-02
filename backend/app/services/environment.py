@@ -16,8 +16,8 @@ import networkx as nx
 from pydantic import BaseModel
 from sqlalchemy import select
 
-from app.models import Environment, Evidence, GraphVersion
-from app.services import graph_store, llm
+from app.models import Environment, Evidence, GraphVersion, Reaction
+from app.services import behavior, graph_store, llm
 from app.services.extraction import junk_name
 from app.services.jobrunner import JobCtx
 from app.services.ontology import ENTITY_TYPES
@@ -28,7 +28,7 @@ OPPOSE = {"OPPOSES"}
 CONTEXT_TYPES = {"event", "policy", "topic", "location"}
 
 DEFAULT_CONFIG = {"platforms": ["microblog", "forum"], "rounds": 24, "minutes_per_round": 60, "seed": 42,
-                  "llm_personas": 6, "llm_posts_per_round": 1, "inject_round": 6,
+                  "llm_personas": 6, "llm_posts_per_round": 1, "inject_round": 6, "snapshot_every": 6,
                   "epsilon": 0.6, "mu": 0.2, "backfire": 0.04,
                   # Real people, parties and governments shape the scenario but never get posts written in their name.
                   "real_actors_context_only": True,
@@ -36,6 +36,13 @@ DEFAULT_CONFIG = {"platforms": ["microblog", "forum"], "rounds": 24, "minutes_pe
                   "scenario_shock": 0.0,
                   # "rules" = fast rule-based engine with templates; "ai" = the local model decides and writes every action.
                   "agent_mode": "rules", "ai_turns_per_round": 3, "knowledge_notes": ""}
+
+
+def db_selected_reactions(db, case_id: str) -> list[Reaction]:
+    """Reactions the analyst marked `selected`, from the most recent reaction run that has any."""
+    rows = list(db.scalars(select(Reaction).where(Reaction.case_id == case_id, Reaction.status == "selected").order_by(Reaction.created_at.desc())))
+    latest = rows[0].run_id if rows else None
+    return [r for r in rows if r.run_id == latest]
 
 
 class PersonaOut(BaseModel):
@@ -135,6 +142,7 @@ def build(ctx: JobCtx, env: Environment, version: GraphVersion) -> None:
             "platforms": cfg["platforms"], "generated_by": "template",
             "synthetic": False, "speaks": not cfg["real_actors_context_only"],
         })
+        agents[-1]["behavior"] = behavior.clean(agents[-1])
     # Unstated stances lean toward allies' stated ones, then get small seeded spread.
     ally_of: dict[str, set[str]] = {}
     for e in edges:
@@ -228,6 +236,15 @@ def build(ctx: JobCtx, env: Environment, version: GraphVersion) -> None:
         seeds.append({"round": cfg["inject_round"], "content": env.scenario, "source": "scenario injection"})
     if not llm.available():
         cfg["llm_posts_per_round"] = 0
+    # Reactions the analyst selected for the simulation are attached to their actors as hypotheses. They are scenario
+    # material, kept apart from `facts` (which are source-grounded), and never become evidence.
+    chosen = db_selected_reactions(ctx.db, env.case_id)
+    for a in agents:
+        mine = [r for r in chosen if r.actor_id == a["node_id"]]
+        if mine:
+            a["hypotheses"] = [{"id": r.id, "title": r.title, "category": r.category, "label": "AI-generated hypothesis"} for r in mine]
+            for r in mine:
+                r.environment_id = env.id
     env.agents, env.links, env.seed_posts, env.config = agents, list(links.values()), seeds, cfg
     ctx.log(f"Config: {cfg['rounds']} rounds × {cfg['minutes_per_round']} min on {' + '.join(cfg['platforms'])}; "
             f"{len(seeds)} seed posts; {cfg['llm_posts_per_round']} LLM-written posts per round")

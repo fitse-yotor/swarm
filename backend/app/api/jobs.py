@@ -9,7 +9,7 @@ from app.models import ProcessingJob, User, utcnow
 from app.schemas import BuildIn, JobOut
 from app.services.jobrunner import JOB_STAGES, run_job
 
-JOB_PERM = {"graph_build": "doc.upload", "environment": "env.edit", "simulation": "sim.run", "report": "report.edit"}
+JOB_PERM = {"graph_build": "doc.upload", "environment": "env.edit", "simulation": "sim.run", "report": "report.edit", "reactions": "graph.review"}
 
 router = APIRouter(tags=["jobs"])
 

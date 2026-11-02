@@ -1,4 +1,5 @@
 """Stages 2-5: environments, simulations, reports and conversations."""
+import logging
 from datetime import datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -12,7 +13,7 @@ from app.core.db import SessionLocal, get_db
 from app.core.deps import audit, current_user, get_case, require
 from app.models import (Conversation, Environment, GraphVersion, ProcessingJob, Report, SimEvent, Simulation, User,
                         utcnow)
-from app.services import interaction, personas, reactions, versions
+from app.services import behavior, dynamic_graph, interaction, personas, reactions, versions, workspace
 from app.services.environment import DEFAULT_CONFIG
 
 router = APIRouter(tags=["workflow"])
@@ -48,7 +49,8 @@ def env_out(db: Session, e: Environment, full: bool = True) -> dict:
                agent_count=len(e.agents), link_count=len(e.links),
                simulation_count=db.scalar(select(func.count()).where(Simulation.environment_id == e.id)))
     if full:
-        out.update(agents=e.agents, links=e.links, seed_posts=e.seed_posts, job=latest_job(db, e.job_id))
+        out.update(agents=[a if "behavior" in a else behavior.with_default(a) for a in e.agents], links=e.links,
+                   seed_posts=e.seed_posts, job=latest_job(db, e.job_id))
     return out
 
 
@@ -85,7 +87,8 @@ def create_env(case_id: str, body: EnvIn, bg: BackgroundTasks, db: Session = Dep
         raise HTTPException(409, "Build a knowledge graph before setting up an environment")
     allowed = {k: body.config[k] for k in DEFAULT_CONFIG.keys() | {"focus_node_id", "focus_label"} if k in body.config}
     env = Environment(case_id=case_id, version_id=v.id, name=body.name.strip(), scenario=body.scenario.strip(),
-                      config={**DEFAULT_CONFIG, **allowed}, created_by=user.name)
+                      config={**DEFAULT_CONFIG, **workspace.sim_defaults(db, user.tenant_id), **allowed},
+                      created_by=user.name)
     db.add(env)
     db.flush()
     env.job_id = start_job(db, user, case_id, "environment", env.id)
@@ -118,6 +121,7 @@ def patch_env(env_id: str, body: EnvPatch, db: Session = Depends(get_db), user: 
             a["stance"] = max(-1.0, min(1.0, float(a.get("stance", 0))))
             a["activity"] = max(0.0, min(1.0, float(a.get("activity", 0.5))))
             a["influence"] = max(0.05, min(1.0, float(a.get("influence", 0.5))))
+            a["behavior"] = behavior.clean(a)
             for k, d in (("interests", []), ("facts", []), ("platforms", env.config["platforms"]), ("persona", ""),
                          ("bio", ""), ("profession", "Agent"), ("tone", "neutral"), ("kind", "individual")):
                 a.setdefault(k, d)
@@ -228,7 +232,7 @@ def sim_out(db: Session, s: Simulation, full: bool = True) -> dict:
                platforms=cfg.get("platforms", []), agent_count=len((s.config or {}).get("agents", [])),
                report_count=db.scalar(select(func.count()).where(Report.simulation_id == s.id)))
     if full:
-        out.update(rounds=s.rounds, stats=s.stats, agents=(s.config or {}).get("agents", []),
+        out.update(rounds=s.rounds, stats=s.stats, agents=[a if "behavior" in a else behavior.with_default(a) for a in (s.config or {}).get("agents", [])],
                    links=(s.config or {}).get("links", []), config=cfg, job=latest_job(db, s.job_id),
                    scenario=env.scenario if env else "")
     return out
@@ -314,6 +318,26 @@ def reaction_graph(sim_id: str, post_id: str | None = None, agent_id: str | None
     return reactions.interaction_graph(db, sim)
 
 
+@router.get("/simulations/{sim_id}/overlay-graph")
+def overlay_graph(sim_id: str, post_id: str | None = None, agent_id: str | None = None, db: Session = Depends(get_db),
+                  user: User = Depends(current_user)):
+    """The original actor network with the run's posts and reactions drawn on top (base + interaction layers)."""
+    sim = owned(db, user, Simulation, sim_id, "Simulation")
+    if post_id:
+        ev = db.get(SimEvent, post_id)
+        if ev is None or ev.simulation_id != sim.id:
+            raise HTTPException(404, "Post not found in this simulation")
+    if agent_id and agent_id not in reactions.agents_of(sim):
+        raise HTTPException(404, "Agent not found in this simulation")
+    return reactions.overlay_graph(db, sim, post_id, agent_id)
+
+
+@router.get("/behavior/presets")
+def behavior_presets(_user: User = Depends(current_user)):
+    """Behaviour presets for agents (what they tend to do, and how they answer comments on their posts)."""
+    return {"presets": behavior.preset_catalogue(), "actions": list(behavior.KEYS), "reply_styles": list(behavior.REPLY_STYLES)}
+
+
 class ActionIn(BaseModel):
     agent_id: str
     action: str = Field(pattern=r"^(CREATE_POST|CREATE_COMMENT|REPOST|LIKE_POST|DISLIKE_POST)$")
@@ -348,13 +372,18 @@ def trigger_action(sim_id: str, body: ActionIn, db: Session = Depends(get_db), u
             raise HTTPException(422, "That event is not a post or comment")
     elif body.content.strip() == "" and not body.use_llm:
         pass  # template post
-    created = reactions.trigger(db, sim, agent_id=body.agent_id, action=body.action, platform=body.platform, target=target,
+    created, responses = reactions.trigger(db, sim, agent_id=body.agent_id, action=body.action, platform=body.platform, target=target,
                                 content=body.content, react=body.react, use_llm=body.use_llm, actor=user.name)
+    try:
+        dynamic_graph.record_trigger(db, sim, created)
+    except Exception:  # noqa: BLE001 — the action itself succeeded; log the gap instead of failing the request
+        logging.getLogger(__name__).warning("Could not record graph events for a triggered action", exc_info=True)
     audit(db, user, "simulation.trigger", f"{agent['name']} {body.action}", sim.case_id, simulation=sim.id)
     db.commit()
     return {"events": [{k: getattr(e, k) for k in ("id", "round", "platform", "agent_id", "agent_name", "action", "content", "target_id",
                                                    "stance", "likes", "replies", "reposts", "generated_by", "why")} for e in created],
-            "target": {"id": target.id, "likes": target.likes, "reposts": target.reposts, "replies": target.replies} if target else None}
+            "target": {"id": target.id, "likes": target.likes, "reposts": target.reposts, "replies": target.replies} if target else None,
+            "responses": responses}
 
 
 @router.delete("/simulations/{sim_id}", status_code=204)

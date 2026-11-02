@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, Inbox, Maximize, Minimize, RefreshCw, Share2, Square, Tag } from "lucide-react";
+import { ArrowRight, Inbox, Layers, Maximize, Minimize, RefreshCw, Share2, Square, Tag } from "lucide-react";
 import { api, type Doc, type Graph, type Job } from "../api";
 import { useToast } from "../components/ui";
 import { StageLayout, StepCard, Stats, SysLog } from "../components/Stage";
 import Graph3D, { type G3Link, type G3Node } from "../graph/Graph3D";
-import { ETYPES, typeColor } from "../vocab";
+import { COMM_COL, ETYPES, typeColor } from "../vocab";
 import { useTheme } from "../hooks";
 import { useCase } from "./CaseDetail";
 
@@ -31,6 +31,8 @@ export default function Build() {
     queryFn: () => api.get<Graph>(`/cases/${caseId}/graph?version_id=${versionId}`) });
   const [labels, setLabels] = useState(true);
   const [full, setFull] = useState(false);
+  const [groupBy, setGroupBy] = useState<"type" | "community">("type");
+  const [gather, setGather] = useState(false);
   const theme = useTheme();
 
   useEffect(() => {
@@ -44,17 +46,23 @@ export default function Build() {
   });
 
   // Node ids are names in both the live preview and the final graph, so the build hands over without a jump.
+  // Clusters: by entity type while building; by detected community once the graph is final.
+  const communities = final.data?.communities ?? [];
+  const byCommunity = groupBy === "community" && communities.length > 0;
   const { nodes, links } = useMemo(() => {
     if (final.data) {
       const name = Object.fromEntries(final.data.nodes.map(n => [n.id, n.name]));
-      return { nodes: final.data.nodes.filter(n => n.status !== "rejected").map(n => ({ id: n.name, name: n.name, type: n.type })) as G3Node[],
+      return { nodes: final.data.nodes.filter(n => n.status !== "rejected").map(n => ({ id: n.name, name: n.name, type: n.type, group: byCommunity ? (n.community ?? "none") : n.type })) as G3Node[],
         links: final.data.edges.filter(e => name[e.s] && name[e.o]).map(e => ({ source: name[e.s], target: name[e.o], type: e.type })) as G3Link[] };
     }
     const p = (j?.stats.preview ?? { nodes: [], edges: [] }) as Preview;
     const docLinks = p.nodes.filter(n => n[2]).map(n => ({ source: n[2]!, target: n[0], type: "MENTIONED_IN" }));
-    return { nodes: p.nodes.map(([n, t]) => ({ id: n, name: n, type: t })),
+    return { nodes: p.nodes.map(([n, t]) => ({ id: n, name: n, type: t, group: t })) as G3Node[],
       links: [...p.edges.map(([s, o, t]) => ({ source: s, target: o, type: t })), ...docLinks] };
-  }, [j?.stats.preview, final.data]);
+  }, [j?.stats.preview, final.data, byCommunity]);
+  const groupColors = useMemo(() => byCommunity ? Object.fromEntries(communities.map((c, i) => [c.id, COMM_COL[i % COMM_COL.length]])) : Object.fromEntries(Object.keys(ETYPES).map(t => [t, typeColor(t)])),
+    [byCommunity, communities]);
+  const groupLabels = useMemo(() => byCommunity ? Object.fromEntries(communities.map(c => [c.id, c.name])) : Object.fromEntries(Object.entries(ETYPES).map(([k, v]) => [k, v.label])), [byCommunity, communities]);
 
   if (!j) return <div className="page muted">{job.isError ? (job.error as Error).message : "Loading build…"}</div>;
   const running = j.status === "running" || j.status === "queued";
@@ -68,16 +76,21 @@ export default function Build() {
     : done ? { label: "Graph ready for review", tone: "ok" as const } : { label: j.status === "failed" ? "Build failed" : "Cancelled", tone: "err" as const };
 
   const left = <div className={`st-left ${full ? "full" : ""}`} style={{ position: full ? "fixed" : "absolute", inset: 0 }}>
-    <Graph3D nodes={nodes} links={links} live={running} theme={theme} labels={labels}
+    <Graph3D nodes={nodes} links={links} live={running} theme={theme} labels={labels} colorByGroup={byCommunity} gather={gather} groupColors={groupColors} groupLabels={groupLabels}
       nodeHref={done ? n => `/cases/${caseId}/graph?focus=${encodeURIComponent(n.name)}` : undefined} />
     <div className="st-left-h">
       <h3>Graph Relationship Visualization{running && <span className="small muted" style={{ fontWeight: 400 }}> · building live</span>}</h3>
+      <div className="viewseg" role="group" aria-label="Cluster by"><button className={groupBy === "type" ? "on" : ""} aria-pressed={groupBy === "type"} onClick={() => setGroupBy("type")}>Type</button>
+        <button className={groupBy === "community" ? "on" : ""} aria-pressed={groupBy === "community"} disabled={!communities.length} onClick={() => setGroupBy("community")}
+          title={communities.length ? "Colour and cluster by detected community" : "Communities are detected when the build finishes"}>Community</button></div>
+      <button className={`pbtn ${gather ? "on" : ""}`} aria-pressed={gather} onClick={() => setGather(!gather)} title="Pull each group into its own cluster"><Layers />Cluster</button>
       <button className="pbtn" aria-pressed={labels} onClick={() => setLabels(!labels)}><Tag />{labels ? "Hide labels" : "Show labels"}</button>
       <button className="pbtn icon" onClick={() => setFull(!full)} aria-label="Fullscreen">{full ? <Minimize /> : <Maximize />}</button>
     </div>
-    <div className="legend-card"><h5>Entity Types</h5><div className="lg-grid">
-      {["document", ...types].map(t => <span key={t} className="lg"><i style={{ background: typeColor(t) }} />{ETYPES[t as keyof typeof ETYPES]?.label ?? t}
-        <span className="dim">{nodes.filter(n => n.type === t).length}</span></span>)}</div>
+    <div className="legend-card"><h5>{byCommunity ? "Communities" : "Entity Types"}</h5><div className="lg-grid">
+      {byCommunity ? communities.map((c, i) => <span key={c.id} className="lg"><i style={{ background: COMM_COL[i % COMM_COL.length] }} />{c.name}<span className="dim">{c.size}</span></span>)
+        : ["document", ...types].map(t => <span key={t} className="lg"><i style={{ background: typeColor(t) }} />{ETYPES[t as keyof typeof ETYPES]?.label ?? t}
+          <span className="dim">{nodes.filter(n => n.type === t).length}</span></span>)}</div>
       <div className="xs dim mt8">Hover for details · click a node to pin it · drag to orbit · scroll to zoom</div></div>
   </div>;
 

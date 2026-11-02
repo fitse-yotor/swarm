@@ -5,7 +5,7 @@ import { BookOpen, Box, Check, ChevronLeft, Download, Edit3, Filter, GitCompare,
   Scan, Settings2, Share2, Square, X, ZoomIn, ZoomOut } from "lucide-react";
 import { api, type ClaimStatus, type EntityType, type Graph } from "../api";
 import { useAuth } from "../auth";
-import { Empty, ShapeIcon, StatusBadge, useToast } from "../components/ui";
+import { Empty, isUnavailable, ShapeIcon, StatusBadge, Unavailable, useToast } from "../components/ui";
 import Graph3D from "../graph/Graph3D";
 import SigmaCanvas, { type CanvasEdge, type CanvasHandle, type CanvasNode, type LabelMode, type Layout } from "../graph/SigmaCanvas";
 import { load, store } from "../prefs";
@@ -154,6 +154,7 @@ export default function GraphExplorer() {
   }, [full, modal]);
   useEffect(() => { setTimeout(() => canvas.current?.fit(), 80); }, [full]);
 
+  if (graph.isError && isUnavailable(graph.error)) return <div className="page"><Unavailable error={graph.error} onRetry={() => graph.refetch()} retrying={graph.isFetching} /></div>;
   if (graph.isError) return <div className="page"><Empty icon={<Share2 />} title="This case has no graph yet" text={(graph.error as Error).message === "This case has no graph yet" ? "Add sources and build a knowledge graph to explore entities, relationships and evidence." : (graph.error as Error).message}>
     <Link className="btn pri" to={`/cases/${caseId}/documents`}>Add sources</Link></Empty></div>;
   if (!g) return <div className="center-fill">Loading graph…</div>;

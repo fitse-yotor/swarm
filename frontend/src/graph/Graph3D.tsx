@@ -6,14 +6,17 @@ import SpriteText from "three-spritetext";
 import { ETYPES } from "../vocab";
 import { cssVar, typeColor } from "../vocab";
 
-export interface G3Node { id: string; name: string; type: string; info?: string; root?: boolean }
-export interface G3Link { source: string; target: string; type: string; id?: string }
+/** `group` is a cluster key (community, stance camp…); `layer` separates the original graph from what is drawn on it. */
+export interface G3Node { id: string; name: string; type: string; info?: string; root?: boolean; group?: string; layer?: string }
+export interface G3Link { source: string; target: string; type: string; id?: string; kind?: string; layer?: string }
 // Node kinds used by reaction graphs; entity types fall back to the ontology colours.
 const EXTRA_COLORS: Record<string, string> = { persona: "#F59E0B", actor: "#94A3B8", post: "#3B82F6", comment: "#10B981", repost: "#8B5CF6" };
 const colorOf = (t: string) => EXTRA_COLORS[t] ?? typeColor(t);
+// Original-graph relations between actors keep their meaning in the colour: allies green, opponents red.
+const KIND_COLORS: Record<string, string> = { ally: "#10B981", opponent: "#EF4444" };
 const EMPTY = new Set<string>();
 type N = G3Node & { x?: number; y?: number; z?: number; born: number };
-type L = { source: string | N; target: string | N; type: string; born: number; id?: string };
+type L = { source: string | N; target: string | N; type: string; born: number; id?: string; kind?: string; layer?: string };
 type Rel = { dir: "out" | "in"; type: string; other: string };
 type Card = { kind: "node"; node: N; rels: Rel[]; x: number; y: number } | { kind: "link"; s: string; t: string; type: string; x: number; y: number };
 
@@ -25,8 +28,13 @@ const label = (t: string) => ETYPES[t as keyof typeof ETYPES]?.label ?? t[0].toU
  * per frame, so a build that finishes in seconds still reads as the graph assembling. Hover a node
  * or link for details; click a node to pin its details and highlight its neighbourhood.
  */
-export default function Graph3D({ nodes, links, live, theme, labels = true, nodeHref, hidden, isolate, onPick, pin = true }: {
+export default function Graph3D({ nodes, links, live, theme, labels = true, nodeHref, hidden, isolate, onPick, pin = true, colorByGroup = false, gather = false,
+  groupColors, groupLabels, labelFilter }: {
   nodes: G3Node[]; links: G3Link[]; live: boolean; theme: string; labels?: boolean; nodeHref?: (n: G3Node) => string;
+  /** Colour nodes by `group` instead of by type. */ colorByGroup?: boolean;
+  /** Pull each group together into a cluster and label it. */ gather?: boolean;
+  groupColors?: Record<string, string>; groupLabels?: Record<string, string>;
+  /** Which nodes keep a permanent name label (others show it when hovered). Default: all. */ labelFilter?: (n: G3Node) => boolean;
   /** Node/link ids to hide (filters). */ hidden?: Set<string>;
   /** Show only this node and its direct connections (the page owns the state). */ isolate?: string | null;
   /** Called when a node is clicked. With pin=false the page shows the details itself. */ onPick?: (id: string) => void; pin?: boolean;
@@ -38,13 +46,20 @@ export default function Graph3D({ nodes, links, live, theme, labels = true, node
   const S = useRef({ have: new Map<string, N>(), haveLinks: new Set<string>(), qN: [] as G3Node[], qL: [] as G3Link[],
     nodes: [] as N[], links: [] as L[], live, angle: 0, labels, focus: null as Set<string> | null, focusLinks: null as Set<L> | null,
     mouse: { x: 0, y: 0 }, pinnedId: null as string | null, hidden: EMPTY, isolate: null as string | null,
-    onPick: undefined as ((id: string) => void) | undefined, pin: true }).current;
+    onPick: undefined as ((id: string) => void) | undefined, pin: true,
+    colorByGroup: false, gather: false, groupColors: {} as Record<string, string>, groupLabels: {} as Record<string, string>,
+    labelFilter: undefined as ((n: G3Node) => boolean) | undefined }).current;
   S.live = live;
   S.labels = labels;
   S.hidden = hidden ?? EMPTY;
   S.isolate = isolate ?? null;
   S.onPick = onPick;
   S.pin = pin;
+  S.colorByGroup = colorByGroup;
+  S.gather = gather;
+  S.groupColors = groupColors ?? {};
+  S.groupLabels = groupLabels ?? {};
+  S.labelFilter = labelFilter;
 
   const relsOf = (id: string): Rel[] => S.links.flatMap((l): Rel[] => {
     const s = endId(l.source), t = endId(l.target);
@@ -75,13 +90,17 @@ export default function Graph3D({ nodes, links, live, theme, labels = true, node
         if (S.hidden.has(a) || S.hidden.has(b) || ((l as L).id && S.hidden.has((l as L).id!))) return false;
         return !S.isolate || a === S.isolate || b === S.isolate;  // isolate: only the clicked node's own connections
       })
-      .nodeColor(n => (dim(n as N) ? (light ? "#d7dce4" : "#2a3242") : colorOf((n as N).type)))
-      .linkColor(l => (S.focusLinks?.has(l as L) ? cssVar("--acc") : light ? "#334155" : "#64748B"))
+      .nodeColor(n => {
+        const node = n as N;
+        if (dim(node)) return light ? "#d7dce4" : "#2a3242";
+        return (S.colorByGroup && node.group && S.groupColors[node.group]) || colorOf(node.type);
+      })
+      .linkColor(l => (S.focusLinks?.has(l as L) ? cssVar("--acc") : KIND_COLORS[(l as L).kind ?? ""] ?? (light ? "#334155" : "#64748B")))
       .linkOpacity(light ? 0.85 : 0.4)
       .linkWidth(l => (S.focusLinks?.has(l as L) ? 1.8 : Date.now() - (l as L).born < 2500 ? 1.2 : light ? 1 : 0.4))
       .nodeThreeObject(n => {
         const node = n as N;
-        const show = node.type === "document" || (S.labels && (!S.focus || S.focus.has(node.id)));
+        const show = node.type === "document" || (S.labels && (!S.focus || S.focus.has(node.id)) && (!S.labelFilter || S.labelFilter(node) || !!S.focus));
         if (!show) return undefined as never;
         const t = new SpriteText(node.name.length > 28 ? node.name.slice(0, 26) + "…" : node.name, node.type === "document" ? 4.2 : 2.8,
           light ? "#1e293b" : "#e5e7eb");
@@ -139,6 +158,62 @@ export default function Graph3D({ nodes, links, live, theme, labels = true, node
       .onBackgroundClick(() => { if (!S.pin) return; S.pinnedId = null; setPinned(null); setFocus(null); });
     const relsOfCount = (id: string) => S.links.reduce((k, l) => k + (endId(l.source) === id || endId(l.target) === id ? 1 : 0), 0);
     (g.d3Force("charge") as unknown as { strength: (v: number) => void } | undefined)?.strength(-28);
+
+    // Cluster layout: each node is pulled toward the centre of its own group, so groups read as separate clumps.
+    type Mover = N & { vx?: number; vy?: number; vz?: number };
+    const centres = () => {
+      const c = new Map<string, { x: number; y: number; z: number; n: number }>();
+      for (const n of S.nodes) {
+        if (!n.group) continue;
+        const e = c.get(n.group) ?? { x: 0, y: 0, z: 0, n: 0 };
+        e.x += n.x ?? 0; e.y += n.y ?? 0; e.z += n.z ?? 0; e.n++;
+        c.set(n.group, e);
+      }
+      return c;
+    };
+    // Each group gets its own anchor, spread over a sphere (golden-angle spiral) so clusters stay apart from any viewing angle
+    // even when many links cross between them.
+    const anchors = () => {
+      const keys = [...new Set(S.nodes.map(n => n.group).filter((x): x is string => !!x))].sort();
+      const r = keys.length < 2 ? 0 : 50 + 14 * Math.sqrt(S.nodes.length);
+      return new Map(keys.map((k, i) => {
+        const y = 1 - (2 * i + 1) / keys.length, ring = Math.sqrt(Math.max(0, 1 - y * y)), th = i * 2.399963;
+        return [k, { x: r * ring * Math.cos(th), y: r * y, z: r * ring * Math.sin(th) }];
+      }));
+    };
+    const cluster = Object.assign((alpha: number) => {
+      if (!S.gather) return;
+      const a = anchors();
+      const k = 0.05 + 0.25 * alpha;
+      for (const n of S.nodes as Mover[]) {
+        if (typeof n !== "object") continue;
+        const t = n.group ? a.get(n.group) : undefined;
+        if (!t) continue;
+        n.vx = (n.vx ?? 0) + (t.x - (n.x ?? 0)) * k;
+        n.vy = (n.vy ?? 0) + (t.y - (n.y ?? 0)) * k;
+        n.vz = (n.vz ?? 0) + (t.z - (n.z ?? 0)) * k;
+      }
+    }, { initialize: () => undefined });
+    g.d3Force("cluster", cluster as never);
+    // A floating label above each cluster while clusters are gathered.
+    const tags = new Map<string, SpriteText>();
+    g.onEngineTick(() => {
+      const scene = g.scene();
+      const c = S.gather ? centres() : new Map<string, { x: number; y: number; z: number; n: number }>();
+      for (const [key, t] of tags) if (!c.has(key) || c.get(key)!.n < 2) t.visible = false;
+      for (const [key, e] of c) {
+        if (e.n < 2) continue;
+        let t = tags.get(key);
+        const text = `${S.groupLabels[key] ?? key} · ${e.n}`;
+        if (!t) { t = new SpriteText(text, 4.2, "#fff"); t.fontWeight = "700"; t.padding = 2; t.borderRadius = 3; scene.add(t); tags.set(key, t); }
+        else if (t.text !== text) t.text = text;
+        t.backgroundColor = S.groupColors[key] ?? "#64748B";
+        t.visible = true;
+        let spread = 0;
+        for (const n of S.nodes) if (n.group === key) spread = Math.max(spread, Math.hypot((n.x ?? 0) - e.x / e.n, (n.y ?? 0) - e.y / e.n, (n.z ?? 0) - e.z / e.n));
+        t.position.set(e.x / e.n, e.y / e.n + spread + 8, e.z / e.n);
+      }
+    });
     g.onEngineStop(() => { if (!S.live) g.zoomToFit(800, 30); });
     g.graphData({ nodes: [], links: [] });
     g.cameraPosition({ x: 0, y: 0, z: 320 });
@@ -206,6 +281,12 @@ export default function Graph3D({ nodes, links, live, theme, labels = true, node
       S.haveLinks = new Set(S.links.map(l => `${endId(l.source)}|${endId(l.target)}|${l.type}`));
       fg.current?.graphData({ nodes: S.nodes, links: S.links });
     }
+    let regrouped = false;  // e.g. live preview grouped by type, then by community once the build finishes
+    for (const n of nodes) {
+      const h = S.have.get(n.id);
+      if (h && h.group !== n.group) { h.group = n.group; regrouped = true; }
+    }
+    if (regrouped) { restyle(); fg.current?.d3ReheatSimulation(); }
     S.qN.push(...nodes.filter(n => !S.have.has(n.id) && !S.qN.some(q => q.id === n.id)));
     const key = (l: G3Link) => `${l.source}|${l.target}|${l.type}`;
     const queued = new Set(S.qL.map(key));
@@ -215,6 +296,8 @@ export default function Graph3D({ nodes, links, live, theme, labels = true, node
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { restyle(); }, [theme, labels]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { restyle(); fg.current?.d3ReheatSimulation(); }, [colorByGroup, gather, groupColors]);
   // Filters or a new isolated node: re-apply visibility, then frame what is left.
   useEffect(() => {
     restyle();
