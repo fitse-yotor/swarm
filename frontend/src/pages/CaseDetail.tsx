@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Check, Lock, Play, Share2 } from "lucide-react";
+import { AlertTriangle, Check, Lock, Play, RefreshCw, Share2 } from "lucide-react";
 import { api, type AuditItem, type Case, type Doc, type Job, type Version } from "../api";
 import { useAuth } from "../auth";
 import { CaseStatusBadge, Empty, useToast } from "../components/ui";
@@ -35,12 +35,19 @@ export default function CaseDetail() {
   if (!c.data) return <div className="page muted">{c.isError ? (c.error as Error).message : "Loading…"}</div>;
   const k = c.data;
   const pendingDocs = (docs.data ?? []).filter(d => !d.extracted_at && d.status !== "failed").length;
+  const extractedDocs = (docs.data ?? []).filter(d => d.extracted_at).length;
+  const latest = [...(vers.data ?? [])].sort((a, b) => b.number - a.number)[0];
+  const basicExtractor = !!latest && /heuristic/i.test(latest.extractor);  // the fallback used when the spaCy model is missing
+  const reextract = () => { if (confirm("Re-read every source with the current extractor and create a new draft graph version?\n\nYour earlier review decisions are carried forward.")) build.mutate(true); };
 
   return <div className="page">
     <div className="page-head"><div className="grow"><div className="row mb8"><CaseStatusBadge status={k.status} /><span className="xs dim">Case · created {ago(k.created_at)}{k.scope_type && ` · ${k.scope_type} scope`}</span></div>
       <h1>{k.title}</h1><p>{k.description}</p></div>
+      {can("doc.upload") && extractedDocs > 0 && <button className="btn" disabled={build.isPending} onClick={reextract} title="Read every source again with the current extractor"><RefreshCw />Re-extract all sources</button>}
       {can("doc.upload") && <button className="btn" disabled={build.isPending} onClick={() => build.mutate(false)}><Play />{pendingDocs ? `Build graph (${pendingDocs} new source${pendingDocs > 1 ? "s" : ""})` : "Rebuild graph"}</button>}
       <Link className="btn pri" to={`/cases/${caseId}/graph`}><Share2 />Open graph</Link></div>
+    {basicExtractor && can("doc.upload") && <div className="banner warn" role="alert"><AlertTriangle /><span className="grow"><b>This graph was built with the basic fallback extractor</b> ({latest!.extractor}), which finds names but not typed relationships such as “supports” or “opposes”.
+      Install the spaCy model (<code>python -m spacy download en_core_web_sm</code>), then re-extract.</span><button className="btn sm" disabled={build.isPending} onClick={reextract}><RefreshCw />Re-extract all sources</button></div>}
     <div className="tabs" role="tablist">{[["overview", "Overview"], ["sources", `Sources ${docs.data?.length ?? ""}`], ["graph", `Graph versions ${vers.data?.length ?? ""}`], ["builds", "Builds"], ["audit", "Audit"]].map(([id, l]) =>
       <button key={id} role="tab" className={tab === id ? "on" : ""} onClick={() => setTab(id)}>{l}</button>)}</div>
 
