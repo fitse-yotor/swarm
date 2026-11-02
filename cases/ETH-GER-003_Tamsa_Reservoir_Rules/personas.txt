@@ -1,0 +1,17 @@
+Personas for ETH-GER-003 (FICTIONAL). Archetypes written for software testing: not real people, and their comments are not opinion data.
+Topic codes: T01 reservoir levels and power supply; T02 downstream irrigation water; T03 compensation and monitoring; T04 trust in the process.
+
+- SIM01 — Hydropower plant engineer (Ethiopia; sceptical of release limits) [stance -0.6]: "Every metre we draw the reservoir down costs us turbine head, and the grid feels it by evening." [simulation topic T01]
+- SIM02 — Smallholder maize farmer (Ethiopia; supportive of guaranteed releases) [stance +0.6]: "If the canal is dry in planting week, nothing else in this protocol matters to my family." [simulation topic T02]
+- SIM03 — Cooperative union organiser (Ethiopia; critical of the phase-in) [stance -0.3]: "We want the rule, but the first release must come before the seeds go in the ground." [simulation topic T02]
+- SIM04 — Irrigation canal supervisor (Ethiopia; supportive) [stance +0.7]: "Weekly flow numbers would let us schedule turns fairly instead of arguing at the gate." [simulation topic T03]
+- SIM05 — Water-resources lecturer (Ethiopia; cautiously supportive) [stance +0.4]: "The model says nine good years in ten, but the tenth year is where trust is won or lost." [simulation topic T04]
+- SIM06 — Regional water bureau officer (Ethiopia; neutral mediator) [stance +0.1]: "My job is to enforce whichever rules are adopted, so I want rules that both sides can follow." [simulation topic T04]
+- SIM07 — Local radio reporter (Ethiopia; neutral) [stance 0.0]: "I will report what the readings show each week, whoever the numbers help." [simulation topic T03]
+- SIM08 — Women's water users group member (Ethiopia; supportive of monitoring) [stance +0.5]: "When the readings are public, women who walk to the canal know when to expect water." [simulation topic T03]
+- SIM09 — Power utility customer in the town (Ethiopia; concerned about outages) [stance -0.4]: "Nobody asked the shopkeepers what a blackout costs when the reservoir is held back." [simulation topic T01]
+- SIM10 — Agricultural input trader (Ethiopia; supportive of reliable water) [stance +0.3]: "Farmers buy seed and fertiliser when they trust the water; unreliable canals shrink my sales." [simulation topic T02]
+- SIM11 — Development bank programme analyst (Ethiopia; supportive of monitoring) [stance +0.4]: "Funding readings only makes sense if the numbers are published and acted on." [simulation topic T03]
+- SIM12 — Young agronomy graduate (Ethiopia; sceptical of the process) [stance -0.2]: "Another committee, another report. Show me water in the canal before I believe it." [simulation topic T04]
+- SIM13 — Downstream village elder (Ethiopia; supportive) [stance +0.6]: "Our grandfathers shared this river by turns; a written schedule is only the old custom made clear." [simulation topic T02]
+- SIM14 — Energy-sector economist (Ethiopia; neutral, wants compensation design) [stance -0.1]: "Limits without a compensation formula just move the cost to whoever has the weakest voice." [simulation topic T03]

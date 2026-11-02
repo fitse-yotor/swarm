@@ -1,0 +1,14 @@
+{
+  "focus": "The Tamsa Release Protocol for the Tamsa Reservoir",
+  "knowledge_notes": "Fictional background for the AI-agent engine: the Tamsa Reservoir supplies both a hydropower plant and the Lower Gerar irrigation canals. Planting week is the moment farmers need water most. All names in this case are invented.",
+  "scenarios": [
+    {"name": "Protocol adopted with monitoring", "shock": 0.5,
+     "text": "Hypothetical: the Gerar Basin Authority adopts the Tamsa Release Protocol with an earlier phase-in, and the Tamsa Monitoring System begins publishing weekly readings."},
+    {"name": "Dry-season shortfall", "shock": -0.5,
+     "text": "Hypothetical: late rains leave the Tamsa Reservoir below its safe level, canal releases are cut during planting week and power output falls on the same days."},
+    {"name": "Compensation fund offered", "shock": 0.3,
+     "text": "Hypothetical: the Tamsa Hydropower Company and the Highland Development Bank propose a compensation fund for lost output if the Tamsa Release Protocol is adopted."},
+    {"name": "Misleading leak online", "shock": -0.4,
+     "text": "Hypothetical: a misleading post claims the protocol will redirect reservoir water to export farms; the Highlands Independent Press and the Gerar Water Institute show the claim is false the next day."}
+  ]
+}
