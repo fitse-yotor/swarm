@@ -15,6 +15,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 app = FastAPI(title=f"{settings.app_name} API", version="0.1.0",
               description="Case intelligence: graph build, environments, simulation, reports and interaction — local models only.")
 Base.metadata.create_all(engine)  # adds new tables; schema changes still need a migration
+with engine.begin() as _c:  # no Alembic yet: additive column changes are applied here
+    _c.exec_driver_sql("ALTER TABLE sim_events ADD COLUMN IF NOT EXISTS why TEXT NOT NULL DEFAULT ''")
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins, allow_credentials=True,
                    allow_methods=["*"], allow_headers=["*"])
 

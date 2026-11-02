@@ -242,6 +242,7 @@ class SimEvent(Base):
     replies: Mapped[int] = mapped_column(Integer, default=0)
     reposts: Mapped[int] = mapped_column(Integer, default=0)
     generated_by: Mapped[str] = mapped_column(String(80), default="template")
+    why: Mapped[str] = mapped_column(Text, default="")  # an AI agent's own one-sentence reason for the action
 
 
 class Report(Base):

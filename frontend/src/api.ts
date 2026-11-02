@@ -88,7 +88,7 @@ export interface AgentLink { id: string; s: string; o: string; kind: "ally" | "o
 export interface EnvConfig {
   platforms: string[]; rounds: number; minutes_per_round: number; seed: number; llm_personas: number; llm_posts_per_round: number;
   inject_round: number; epsilon: number; mu: number; backfire: number; focus_node_id?: string | null; focus_name?: string;
-  real_actors_context_only?: boolean; scenario_shock?: number;
+  real_actors_context_only?: boolean; scenario_shock?: number; agent_mode?: "rules" | "ai"; ai_turns_per_round?: number; knowledge_notes?: string;
 }
 export interface Environment {
   id: string; case_id: string; version_id: string; version_label: string; version_status: string | null; name: string; scenario: string;
@@ -116,7 +116,7 @@ export interface Simulation {
 }
 export interface SimEvent {
   id: string; round: number; platform: string; agent_id: string; agent_name: string; action: string; content: string;
-  target_id: string | null; stance: number; likes: number; replies: number; reposts: number; generated_by: string;
+  target_id: string | null; stance: number; likes: number; replies: number; reposts: number; generated_by: string; why?: string;
 }
 export interface ReportSection { id: string; title: string; kind: "computed" | "generated" | "evidence" | "edited"; body: string; sources?: RagAnswer["chunks"] }
 export interface Report {

@@ -33,7 +33,9 @@ DEFAULT_CONFIG = {"platforms": ["microblog", "forum"], "rounds": 24, "minutes_pe
                   # Real people, parties and governments shape the scenario but never get posts written in their name.
                   "real_actors_context_only": True,
                   # Direction the injected scenario pushes stance toward the focus issue (-1 .. +1); 0 = neutral news.
-                  "scenario_shock": 0.0}
+                  "scenario_shock": 0.0,
+                  # "rules" = fast rule-based engine with templates; "ai" = the local model decides and writes every action.
+                  "agent_mode": "rules", "ai_turns_per_round": 3, "knowledge_notes": ""}
 
 
 class PersonaOut(BaseModel):

@@ -86,8 +86,9 @@ function SimulationView({ caseId, simId }: { caseId: string; simId: string }) {
             <span className="r">R{e.round}</span></div>
           {tgt && e.action === "CREATE_COMMENT" && <div className="reply-to">↳ {tgt.agent_name}: {tgt.content}</div>}
           <div className="pc">{e.content}</div>
+          {e.why && <div className="why" title="The agent's own stated reason for this action"><b>Why:</b> {e.why}</div>}
           <div className="pa"><span><Heart />{e.likes}</span><span><Repeat2 />{e.reposts}</span><span><MessageCircle />{e.replies}</span>
-            <span style={{ marginLeft: "auto" }} className={`gen ${e.generated_by.startsWith("ollama") ? "llm" : ""}`}>{e.generated_by}</span></div>
+            <span style={{ marginLeft: "auto" }} className={`gen ${e.generated_by.startsWith("ollama") || e.generated_by.includes("agent") ? "llm" : ""}`}>{e.generated_by}</span></div>
           <div className="pa" style={{ marginTop: 6 }}>
             <button className="btn ghost sm" title="Show the reactions to this post as a 3D graph" onClick={() => { setScope({ kind: "post", id: e.id }); setLeftView("graph"); }}><Network />Reactions</button>
             {s.status === "done" && can("sim.run") && <button className="btn ghost sm" title="Make a persona react to this post" onClick={() => { setPreset(x => ({ target: e.id, tick: x.tick + 1 })); document.getElementById("trigger")?.scrollIntoView({ behavior: "smooth", block: "center" }); }}><Zap />React…</button>}</div>

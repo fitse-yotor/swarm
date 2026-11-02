@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     llm_provider: str = "ollama"  # ollama | none
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "gemma4"
+    ollama_agent_model: str = ""  # model for AI-agent turns; empty = ollama_model (a smaller one is faster on CPU)
     ollama_num_ctx: int = 8192
     ollama_timeout: float = 900
 

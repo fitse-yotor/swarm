@@ -69,6 +69,15 @@ runs of a case shows how the same population reacts to favourable versus unfavou
 build page shows the knowledge graph assembling live in 3D (Three.js via `3d-force-graph`, bundled locally, no CDN), then
 hands over to the final graph.
 
+## Simulation engines
+
+| Engine | What decides and writes each action | Speed |
+|---|---|---|
+| **Rules + templates** (default) | Seeded rules pick who acts and what; stance moves by a bounded-confidence formula; text comes from templates, with a few posts per round written by the local model | seconds |
+| **AI agents** | The local model (`OLLAMA_AGENT_MODEL`, default `OLLAMA_MODEL`) decides and writes every action. Each acting agent is given the Ethiopia / Horn of Africa briefing (`backend/app/knowledge/ethiopia_geopolitics.md` plus per-environment notes), its persona and graph facts, the case-document passages most relevant to its feed (pgvector), the breaking news and its feed, and returns an action, text, new stance (max 0.35 per turn) and a one-sentence reason shown in the feed | ~45-90 s per turn on CPU |
+
+Choose the engine in *Start simulation*. In AI mode the rules only decide who gets a turn each round (agents that have not acted yet get priority); a failed model call skips the turn rather than faking it. Edit the briefing file to change what every agent knows, or add case-specific facts under *Extra background for AI agents* in the environment config. A smaller model (e.g. set `OLLAMA_AGENT_MODEL`) makes AI runs several times faster.
+
 ## Graph and simulation interaction
 
 - **Sidebar:** icons only (hover for a description). Case icons (graph, review, documents, stages 2-5) appear only while a case is open; create a case from the Dashboard or Cases page.

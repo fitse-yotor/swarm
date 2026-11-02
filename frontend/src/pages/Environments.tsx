@@ -292,6 +292,10 @@ function ConfigForm({ cfg, editable, onChange }: { cfg: EnvConfig; editable: boo
     {num("scenario_shock", "Scenario push (−1…+1)", -1, 1, 0.1)}
     {num("epsilon", "Confidence bound ε", 0.05, 2, 0.05)}{num("mu", "Influence rate μ", 0, 1, 0.05)}
     {num("seed", "Random seed", 0, 99999)}{num("backfire", "Backfire", 0, 0.5, 0.01)}
+    <div className="field" style={{ gridColumn: "1 / -1" }}><label>Extra background for AI agents (optional)</label>
+      <textarea className="inp" rows={3} disabled={!editable} value={cfg.knowledge_notes ?? ""} onChange={x => onChange({ ...cfg, knowledge_notes: x.target.value })}
+        placeholder="Facts every agent should know, added to the built-in Horn of Africa briefing. e.g. a ministry statement or a local development the case documents do not cover." />
+      <span className="hint">Only used by the AI-agent engine. The built-in briefing covers sea access, Tigray, Eritrea, Egypt/GERD, Türkiye, Somalia/Somaliland and the Gulf.</span></div>
   </div>;
 }
 
@@ -325,11 +329,13 @@ function LaunchModal({ env, onClose }: { env: Environment; onClose: () => void }
   const qc = useQueryClient();
   const [rounds, setRounds] = useState(env.config.rounds);
   const [llm, setLlm] = useState(env.config.llm_posts_per_round);
+  const [mode, setMode] = useState<"rules" | "ai">(env.config.agent_mode ?? "rules");
+  const [turns, setTurns] = useState(env.config.ai_turns_per_round ?? 3);
   const [busy, setBusy] = useState(false);
   const go = async () => {
     setBusy(true);
     try {
-      const s = await api.post<Simulation>(`/environments/${env.id}/simulations`, { rounds, llm_posts_per_round: llm });
+      const s = await api.post<Simulation>(`/environments/${env.id}/simulations`, { rounds, llm_posts_per_round: llm, agent_mode: mode, ai_turns_per_round: turns });
       qc.invalidateQueries({ queryKey: ["sims", env.case_id] });
       nav(`/cases/${env.case_id}/simulations/${s.id}`);
     } catch (e) { toast((e as Error).message, "err"); setBusy(false); }
@@ -337,11 +343,20 @@ function LaunchModal({ env, onClose }: { env: Environment; onClose: () => void }
   const speakers = (env.agents ?? []).filter(a => a.speaks !== false).length;
   return <Modal title="Start simulation" sub={`${speakers} posting agents (${env.agent_count - speakers} context-only) on ${env.config.platforms.join(" + ")} · engine lattice-abm/1`} onClose={onClose}
     footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn pri" disabled={busy} onClick={go}>{busy ? "Starting…" : "Start"}</button></>}>
+    <div className="field mb12"><label htmlFor="lm">Agent engine</label>
+      <select id="lm" className="sel" value={mode} onChange={e => setMode(e.target.value as "rules" | "ai")}>
+        <option value="rules">Rules + templates (fast, seconds)</option>
+        <option value="ai">AI agents (the local model decides and writes every action — slow)</option></select>
+      {mode === "ai" && <span className="hint">Each acting agent gets the Ethiopia/Horn of Africa briefing, its persona, the case passages most relevant to its feed, the breaking news and its feed, then chooses to post, comment, repost, like or do nothing and explains why. Needs Ollama running.</span>}</div>
     <div className="form-grid">
       <div className="field"><label htmlFor="lr">Rounds</label><input id="lr" className="inp" type="number" min={1} max={200} value={rounds} onChange={e => setRounds(+e.target.value)} /></div>
-      <div className="field"><label htmlFor="ll">LLM-written posts per round</label><input id="ll" className="inp" type="number" min={0} max={10} value={llm} onChange={e => setLlm(+e.target.value)} /></div>
+      {mode === "ai"
+        ? <div className="field"><label htmlFor="lt">AI agent turns per round</label><input id="lt" className="inp" type="number" min={1} max={20} value={turns} onChange={e => setTurns(+e.target.value)} /></div>
+        : <div className="field"><label htmlFor="ll">LLM-written posts per round</label><input id="ll" className="inp" type="number" min={0} max={10} value={llm} onChange={e => setLlm(+e.target.value)} /></div>}
     </div>
-    <p className="xs dim mt12">Template posts are instant. Each LLM-written post takes about 15–30 s on this CPU, so {rounds} rounds × {llm} ≈ {Math.round(rounds * llm * 22 / 60)} min.</p>
+    <p className="xs dim mt12">{mode === "ai"
+      ? <>Every AI turn is one model call of roughly 90–110 s on this CPU: {rounds} rounds × {turns} turns ≈ <b>{Math.round(rounds * turns * 100 / 60)} min</b>. Agents that have not acted yet get priority, so with {speakers} acting agents everyone speaks about once in {Math.ceil(speakers / Math.max(turns, 1))} rounds.</>
+      : <>Template posts are instant. Each LLM-written post takes about 15–30 s on this CPU, so {rounds} rounds × {llm} ≈ {Math.round(rounds * llm * 22 / 60)} min.</>}</p>
   </Modal>;
 }
 

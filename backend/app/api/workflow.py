@@ -239,6 +239,9 @@ class SimIn(BaseModel):
     rounds: int | None = Field(default=None, ge=1, le=200)
     llm_posts_per_round: int | None = Field(default=None, ge=0, le=10)
     seed: int | None = None
+    agent_mode: str | None = Field(default=None, pattern=r"^(rules|ai)$")
+    ai_turns_per_round: int | None = Field(default=None, ge=1, le=20)
+    inject_round: int | None = Field(default=None, ge=0, le=200)
 
 
 @router.get("/cases/{case_id}/simulations")
@@ -290,7 +293,7 @@ def sim_events(sim_id: str, platform: str | None = None, agent: str | None = Non
         q = q.where(SimEvent.action.in_(["CREATE_POST", "CREATE_COMMENT", "REPOST"]))
     rows = db.scalars(q.order_by(SimEvent.round.desc(), SimEvent.id).limit(min(limit, 1000)))
     return [{k: getattr(e, k) for k in ("id", "round", "platform", "agent_id", "agent_name", "action", "content",
-                                        "target_id", "stance", "likes", "replies", "reposts", "generated_by")}
+                                        "target_id", "stance", "likes", "replies", "reposts", "generated_by", "why")}
             for e in rows]
 
 
@@ -350,7 +353,7 @@ def trigger_action(sim_id: str, body: ActionIn, db: Session = Depends(get_db), u
     audit(db, user, "simulation.trigger", f"{agent['name']} {body.action}", sim.case_id, simulation=sim.id)
     db.commit()
     return {"events": [{k: getattr(e, k) for k in ("id", "round", "platform", "agent_id", "agent_name", "action", "content", "target_id",
-                                                   "stance", "likes", "replies", "reposts", "generated_by")} for e in created],
+                                                   "stance", "likes", "replies", "reposts", "generated_by", "why")} for e in created],
             "target": {"id": target.id, "likes": target.likes, "reposts": target.reposts, "replies": target.replies} if target else None}
 
 

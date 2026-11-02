@@ -134,3 +134,50 @@ def test_trigger_repost_and_reaction_graph():
     created2 = reactions.trigger(db, sim, agent_id="a0", action="CREATE_POST", platform="microblog", target=None, content="", react=True, use_llm=False, actor="me")
     assert created2[0].generated_by.startswith("analyst-trigger") and all(e.round > created[0].round for e in created2)
     assert all(e.agent_id != "a0" for e in created2[1:])  # reactions come from other personas
+
+
+def test_ai_agent_mode_applies_model_decisions(monkeypatch):
+    """The engine lets the model pick the action and text; stance moves are bounded and the reason is stored."""
+    from app.services import agent_brain
+
+    monkeypatch.setattr(llm, "available", lambda: True)
+    calls = []
+
+    def fake_decide(db, **kw):
+        calls.append(kw)
+        if len(calls) == 1:
+            return agent_brain.TurnDecision(action="POST", target=0, text="Ethiopia needs a port, but not at Somalia's expense.",
+                                            stance_after=0.1, why="Balances trade needs against Somali sovereignty.")
+        return agent_brain.TurnDecision(action="COMMENT", target=1, text="Sovereignty comes first.", stance_after=-0.9, why="Fears precedent.")
+
+    monkeypatch.setattr(agent_brain, "decide", fake_decide)
+    sim = _sim(3)
+    sim.case_id = "c"
+    sim.config["config"].update(agent_mode="ai", ai_turns_per_round=1, knowledge_notes="")
+    ctx = SimpleNamespace(db=_Db(), log=lambda *a, **k: None, check_cancel=lambda: None)
+    eng = simulation.Engine(ctx, sim)
+    for r in range(4):
+        eng.round(r)
+    evs = [e for e in eng.by_id.values() if e.agent_id != "src"]  # the seeded scenario/evidence posts are not agent actions
+    assert evs and all(e.why and e.generated_by.endswith("· agent") for e in evs)
+    assert any(e.action == "CREATE_COMMENT" and e.target_id for e in evs)
+
+
+def test_agent_decision_clamps_stance_shift_and_builds_briefing(monkeypatch):
+    from app.services import agent_brain
+
+    monkeypatch.setattr(agent_brain, "passages", lambda *a, **k: ["[doc] Somalia rejected the memorandum on sovereignty grounds."])
+    seen = {}
+
+    def fake_structured(system, user, schema, **kw):
+        seen["system"], seen["user"] = system, user
+        return schema(action="POST", target=0, text=" Sovereignty first. ", stance_after=-1.0, why=" Fear of precedent. ")
+
+    monkeypatch.setattr(llm, "structured", fake_structured)
+    agent = {"id": "a1", "name": "Somali exporter (SIM07)", "profession": "Somali exporter", "synthetic": True, "persona": "Cautious trader.",
+             "interests": ["trade"], "facts": [], "tone": "measured"}
+    d = agent_brain.decide(None, case_id="c", agent=agent, stance=0.2, focus="Ethiopian sea access", scenario="Talks stall.", notes="",
+                           platform="forum", feed=[], own=[])
+    assert abs(d.stance_after - (0.2 - agent_brain.MAX_SHIFT)) < 1e-9 and d.text == "Sovereignty first." and d.why == "Fear of precedent."
+    assert "Ankara Declaration" in seen["system"] and "SYNTHETIC persona" in seen["system"]      # geopolitics briefing + label
+    assert "Talks stall." in seen["user"] and "Somalia rejected the memorandum" in seen["user"]   # scenario + case passages

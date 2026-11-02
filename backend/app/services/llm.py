@@ -41,8 +41,9 @@ def available() -> bool:
     return ok
 
 
-def _body(system: str, messages: list[dict], fmt: dict | None, temperature: float, max_tokens: int, stream: bool) -> dict:
-    body = {"model": settings.ollama_model, "stream": stream, "think": False,
+def _body(system: str, messages: list[dict], fmt: dict | None, temperature: float, max_tokens: int, stream: bool,
+          model: str | None = None) -> dict:
+    body = {"model": model or settings.ollama_model, "stream": stream, "think": False,
             "messages": [{"role": "system", "content": system}, *messages],
             "options": {"temperature": temperature, "num_predict": max_tokens, "num_ctx": settings.ollama_num_ctx}}
     if fmt:
@@ -57,10 +58,15 @@ def chat(system: str, messages: list[dict], *, temperature: float = 0.3, max_tok
     return r.json()["message"]["content"].strip()
 
 
-def structured(system: str, user: str, schema: type[T], *, temperature: float = 0.0, max_tokens: int = 2048) -> T:
+def agent_model() -> str:
+    return settings.ollama_agent_model or settings.ollama_model
+
+
+def structured(system: str, user: str, schema: type[T], *, temperature: float = 0.0, max_tokens: int = 2048,
+               model: str | None = None) -> T:
     r = httpx.post(f"{settings.ollama_url}/api/chat",
                    json=_body(system, [{"role": "user", "content": user}], schema.model_json_schema(), temperature,
-                              max_tokens, False), timeout=settings.ollama_timeout)
+                              max_tokens, False, model), timeout=settings.ollama_timeout)
     r.raise_for_status()
     return schema.model_validate_json(r.json()["message"]["content"])
 

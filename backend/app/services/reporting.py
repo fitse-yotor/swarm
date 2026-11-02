@@ -152,8 +152,9 @@ def generate(ctx: JobCtx) -> None:
             f"**Environment:** {env.name} · graph {version.label} · {st['agents']} agents · {len(env.links)} social links\n\n"
             f"**Run:** {st['rounds']} rounds × {sim.config['config']['minutes_per_round']} min on "
             f"{' and '.join(sim.config['config']['platforms'])} · engine {st['engine']} · seed {sim.config['config']['seed']}"
-            f" · {st['llm_posts']} posts written by {st['llm_model'] or 'no LLM'}, the rest by templates\n\n"
-            f"**Agents:** {st.get('speaking_agents', st['agents'])} posting ({st.get('synthetic_agents', 0)} synthetic personas) · "
+            + (f" · AI agents: {st['ai_turns']} actions each decided and written by {st['agent_model']} from the geopolitics briefing, case passages and the agent's feed ({st['ai_failures']} failed turns skipped)\n\n"
+               if st.get("agent_mode") == "ai" else f" · {st['llm_posts']} posts written by {st['llm_model'] or 'no LLM'}, the rest by templates\n\n")
+            + f"**Agents:** {st.get('speaking_agents', st['agents'])} posting ({st.get('synthetic_agents', 0)} synthetic personas) · "
             f"{st.get('context_only_agents', 0)} real actors context-only (no statements generated in their names)")},
         {"id": "dynamics", "title": "How opinion moved", "kind": "computed", "body": (
             f"Mean stance went from **{fmt(st['stance_start'])}** to **{fmt(st['stance_end'])}** "
@@ -185,8 +186,9 @@ def generate(ctx: JobCtx) -> None:
             "incomplete; stances inferred from allies or a model are assumptions.\n"
             f"- Engine {st['engine']} uses bounded-confidence opinion dynamics and a fixed action mix; real platforms "
             "have recommendation systems, bots and outside events it does not model.\n"
-            "- Template-written posts are generic; only LLM-written posts reflect individual personas.\n"
-            "- Synthetic personas are fictional archetypes. Their simulated posts are not public opinion and not quotations.")},
+            + ("- Every action was chosen and written by the local model acting as that persona; it can still misjudge or invent plausible detail, so read posts as simulated voices.\n"
+               if st.get("agent_mode") == "ai" else "- Template-written posts are generic; only LLM-written posts reflect individual personas.\n")
+            + "- Synthetic personas are fictional archetypes. Their simulated posts are not public opinion and not quotations.")},
     ]
     rep.sections, rep.facts, rep.model = sections, facts, model
     ctx.stage(4)

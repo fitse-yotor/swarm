@@ -17,7 +17,7 @@ import random
 import statistics
 
 from app.models import Environment, SimEvent, Simulation, new_id, utcnow
-from app.services import llm
+from app.services import agent_brain, llm
 from app.services.jobrunner import JobCtx
 
 ENGINE = "lattice-abm/1"
@@ -78,6 +78,13 @@ class Engine:
         self.speakers = [a for a, x in self.agents.items() if x.get("speaks", True)]
         if not self.speakers:
             raise ValueError("No agent can post: import synthetic personas, or allow real actors to speak in the environment")
+        # AI-agent mode: the local model decides and writes every action (agent_brain); the rules only pick who gets a turn.
+        self.ai = self.cfg.get("agent_mode") == "ai"
+        if self.ai and not llm.available():
+            raise ValueError("AI agents need the local model: start Ollama and pull the model, or switch to the rules engine")
+        self.turns = {a: 0 for a in self.agents}
+        self.ai_turns = self.ai_failures = 0
+        self.scenario_text: str | None = None
 
     # ----- content -----
     def topic(self, agent: dict) -> str:
@@ -128,19 +135,19 @@ class Engine:
             s += 0.35 * shock * (1 - abs(s))
         self.stance[aid] = max(-1.0, min(1.0, s))
 
-    def feed(self, aid: str, platform: str, rnd: int) -> list[SimEvent]:
-        recent = [p for p in self.posts if p.platform == platform and p.agent_id != aid and rnd - p.round <= 3
-                  and p.action in ("CREATE_POST", "CREATE_COMMENT", "REPOST")]
+    def feed(self, aid: str, platform: str, rnd: int, window: int = 3) -> list[SimEvent]:
+        recent = [p for p in self.posts if p.platform == platform and p.agent_id != aid and rnd - p.round <= window
+                  and p.action in ("CREATE_POST", "CREATE_COMMENT", "REPOST") and not (self.ai and p.generated_by == "scenario injection")]
         def score(p: SimEvent) -> float:
             return ((2.5 if p.agent_id in self.follows[aid] else 0) + (3 if p.agent_id == "src" else 0)
                     + math.log1p(p.likes + 2 * p.reposts + 2 * p.replies) - 0.4 * (rnd - p.round) + self.rng.random())
         return sorted(recent, key=score, reverse=True)[:5]
 
     def emit(self, rnd: int, platform: str, agent_id: str, name: str, action: str, content: str = "",
-             target: SimEvent | None = None, stance: float = 0.0, by: str = "template") -> SimEvent:
+             target: SimEvent | None = None, stance: float = 0.0, by: str = "template", why: str = "") -> SimEvent:
         ev = SimEvent(id=new_id("se"), simulation_id=self.sim.id, round=rnd, platform=platform, agent_id=agent_id,
                       agent_name=name, action=action, content=content, target_id=target.id if target else None,
-                      stance=round(stance, 3), generated_by=by, likes=0, replies=0, reposts=0)
+                      stance=round(stance, 3), generated_by=by, why=why, likes=0, replies=0, reposts=0)
         self.ctx.db.add(ev)
         self.by_id[ev.id] = ev
         if action in ("CREATE_POST", "CREATE_COMMENT", "REPOST"):
@@ -158,9 +165,14 @@ class Engine:
                 for p in self.cfg["platforms"]:
                     self.emit(rnd, p, "src", "Scenario" if scenario else "Case sources", "CREATE_POST", s["content"],
                                      stance=shock, by=s["source"])
-                if scenario and shock:  # everyone hears the news once
+                if scenario and self.ai:
+                    self.scenario_text = s["content"]  # AI agents read it as breaking news and decide for themselves
+                elif scenario and shock:  # rules engine: everyone hears the news once
                     for aid in self.speakers:
                         self.news_shock(aid, shock)
+        if self.ai:
+            active = self.ai_actions(rnd, hour, counts, per_platform)
+            return self.metrics(rnd, hour, counts, per_platform, active)
         order = [a for a in self.agents.values() if a.get("speaks", True)]  # context-only actors never act
         self.rng.shuffle(order)
         # Influential agents claim the LLM budget first.
@@ -228,6 +240,9 @@ class Engine:
                 target.replies += 1
                 self.emit(rnd, platform, aid, a["name"], action, text or self.template_reply(a, target), target=target,
                           stance=s, by=by)
+        return self.metrics(rnd, hour, counts, per_platform, active)
+
+    def metrics(self, rnd: int, hour: float, counts: dict, per_platform: dict, active: int) -> dict:
         vals = [self.stance[a] for a in self.speakers]
         for aid in self.agents:
             self.series[aid].append(round(self.stance[aid], 3))
@@ -236,6 +251,77 @@ class Engine:
                 "polarization": round(statistics.pstdev(vals), 3),
                 "support": round(sum(v > 0.25 for v in vals) / len(vals), 3),
                 "oppose": round(sum(v < -0.25 for v in vals) / len(vals), 3)}
+
+
+def _ai_turn(self: Engine, a: dict, rnd: int, counts: dict, per_platform: dict) -> None:
+    aid = a["id"]
+    platform = self.rng.choice([p for p in a.get("platforms", self.cfg["platforms"]) if p in self.cfg["platforms"]] or self.cfg["platforms"])
+    feed = self.feed(aid, platform, rnd, window=8)
+    own = [e for e in self.posts if e.agent_id == aid]
+    try:
+        d = agent_brain.decide(self.ctx.db, case_id=self.sim.case_id, agent=a, stance=self.stance[aid], focus=self.focus,
+                               scenario=self.scenario_text, notes=self.cfg.get("knowledge_notes", ""), platform=platform, feed=feed, own=own)
+    except Exception as e:  # a failed turn is skipped, never faked with a template
+        self.ai_failures += 1
+        counts["DO_NOTHING"] += 1
+        self.ctx.log(f"[AI] {a['name']}: model call failed ({type(e).__name__}) — turn skipped", "e")
+        return
+    act = {"POST": "CREATE_POST", "COMMENT": "CREATE_COMMENT", "REPOST": "REPOST", "LIKE": "LIKE_POST", "DISLIKE": "DISLIKE_POST",
+           "NOTHING": "DO_NOTHING"}[d.action]
+    target = feed[d.target - 1] if 1 <= d.target <= len(feed) else None
+    if act == "DISLIKE_POST" and platform != "forum":
+        act = "LIKE_POST"
+    if act in ("CREATE_COMMENT", "REPOST", "LIKE_POST", "DISLIKE_POST") and target is None:
+        act = "CREATE_POST" if act == "CREATE_COMMENT" and d.text else "DO_NOTHING"
+    if act in ("CREATE_POST", "CREATE_COMMENT") and not d.text:
+        act = "DO_NOTHING"
+    self.stance[aid] = d.stance_after
+    self.turns[aid] += 1
+    self.ai_turns += 1
+    counts[act] += 1
+    if act == "DO_NOTHING":
+        self.ctx.log(f"[AI] {a['name']} ({platform}): did nothing — {d.why}")
+        return
+    per_platform[platform] += 1
+    by = f"{llm.agent_model()} · agent"
+    if act == "REPOST":
+        target.reposts += 1
+        self.emit(rnd, platform, aid, a["name"], act, target.content, target=target, stance=d.stance_after, by=by, why=d.why)
+    elif act in ("LIKE_POST", "DISLIKE_POST"):
+        if act == "LIKE_POST":
+            target.likes += 1
+        self.emit(rnd, platform, aid, a["name"], act, target=target, stance=d.stance_after, by=by, why=d.why)
+    else:
+        if act == "CREATE_COMMENT":
+            target.replies += 1
+        self.llm_count += 1
+        self.emit(rnd, platform, aid, a["name"], act, d.text, target=target if act == "CREATE_COMMENT" else None, stance=d.stance_after, by=by, why=d.why)
+    if target is not None and target.agent_id in self.received:
+        self.received[target.agent_id] += 1
+    self.ctx.log(f"[AI] {a['name']} ({platform}) {act.replace('CREATE_', '').lower()}: {(d.text or '')[:90]} — why: {d.why[:110]}")
+    self.ctx.check_cancel()
+
+
+def _ai_actions(self: Engine, rnd: int, hour: float, counts: dict, per_platform: dict) -> int:
+    """Pick who gets a turn this round (activity, daylight, and a boost for agents that have not acted yet), then run them."""
+    k = min(int(self.cfg.get("ai_turns_per_round", 3)), len(self.speakers))
+    pool = [(self.agents[x], (self.agents[x]["activity"] * diurnal(hour) + 0.05) * (3.0 if self.turns[x] == 0 else 1.0) / (1 + 0.5 * self.turns[x]))
+            for x in self.speakers]
+    picked: list[dict] = []
+    while pool and len(picked) < k:
+        r, acc = self.rng.random() * sum(w for _, w in pool), 0.0
+        for i, (a, w) in enumerate(pool):
+            acc += w
+            if r <= acc:
+                picked.append(a)
+                pool.pop(i)
+                break
+    for a in picked:
+        _ai_turn(self, a, rnd, counts, per_platform)
+    return len(picked)
+
+
+Engine.ai_actions = _ai_actions  # type: ignore[attr-defined]
 
 
 def run(ctx: JobCtx) -> None:
@@ -252,8 +338,10 @@ def run(ctx: JobCtx) -> None:
     sim.rounds = []
     eng = Engine(ctx, sim)
     rounds = int(eng.cfg["rounds"])
-    ctx.log(f"{ENGINE}: {len(eng.agents)} agents, {rounds} rounds, platforms {', '.join(eng.cfg['platforms'])}; "
-            f"{eng.llm_budget} LLM-written posts per round ({llm.name() if eng.llm_budget else 'templates only'})", "o")
+    mode = (f"AI agents ({llm.agent_model()}): {eng.cfg.get('ai_turns_per_round', 3)} model-decided turns per round, "
+            f"each with the geopolitics briefing, case passages and its feed" if eng.ai else
+            f"{eng.llm_budget} LLM-written posts per round ({llm.name() if eng.llm_budget else 'templates only'})")
+    ctx.log(f"{ENGINE}: {len(eng.agents)} agents ({len(eng.speakers)} acting), {rounds} rounds, platforms {', '.join(eng.cfg['platforms'])}; {mode}", "o")
 
     ctx.stage(1)
     for r in range(rounds + 1):
@@ -276,6 +364,8 @@ def run(ctx: JobCtx) -> None:
     movers = sorted(eng.speakers, key=lambda a: abs(final[a] - eng.series[a][0]), reverse=True)[:6]
     sim.stats = {
         "engine": ENGINE, "agents": len(eng.agents), "rounds": rounds, "events": len(eng.by_id),
+        "agent_mode": "ai" if eng.ai else "rules", "ai_turns": eng.ai_turns, "ai_failures": eng.ai_failures,
+        "agent_model": llm.agent_model() if eng.ai else None,
         "speaking_agents": len(eng.speakers), "synthetic_agents": sum(1 for a in eng.agents.values() if a.get("synthetic")),
         "context_only_agents": len(eng.agents) - len(eng.speakers),
         "llm_posts": eng.llm_count, "llm_model": llm.name() if eng.llm_count else None,
