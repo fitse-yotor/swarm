@@ -38,6 +38,21 @@ DEFAULT_CONFIG = {"platforms": ["microblog", "forum"], "rounds": 24, "minutes_pe
                   "agent_mode": "rules", "ai_turns_per_round": 3, "knowledge_notes": ""}
 
 
+def copy_personas(db, env: Environment, source_id: str, agents: list[dict], links: list[dict]) -> int:
+    """Append the source environment's synthetic personas (and the links among them) to a freshly built environment."""
+    src = db.get(Environment, source_id)
+    if src is None or src.case_id != env.case_id:
+        return 0
+    have = {a["id"] for a in agents}
+    syn = [dict(a) for a in src.agents if a.get("synthetic") and a["id"] not in have]
+    if not syn:
+        return 0
+    ids = {a["id"] for a in syn}
+    agents.extend(syn)
+    links.extend(dict(x) for x in src.links if x.get("s") in ids and x.get("o") in ids)
+    return len(syn)
+
+
 def db_selected_reactions(db, case_id: str) -> list[Reaction]:
     """Reactions the analyst marked `selected`, from the most recent reaction run that has any."""
     rows = list(db.scalars(select(Reaction).where(Reaction.case_id == case_id, Reaction.status == "selected").order_by(Reaction.created_at.desc())))
@@ -245,7 +260,12 @@ def build(ctx: JobCtx, env: Environment, version: GraphVersion) -> None:
             a["hypotheses"] = [{"id": r.id, "title": r.title, "category": r.category, "label": "AI-generated hypothesis"} for r in mine]
             for r in mine:
                 r.environment_id = env.id
-    env.agents, env.links, env.seed_posts, env.config = agents, list(links.values()), seeds, cfg
+    link_list = list(links.values())
+    src_id = cfg.get("copy_personas_from")
+    if src_id:
+        copied = copy_personas(ctx.db, env, src_id, agents, link_list)
+        ctx.log(f"Copied {copied} synthetic personas from another environment" if copied else "No synthetic personas to copy from the chosen environment", "o" if copied else "w")
+    env.agents, env.links, env.seed_posts, env.config = agents, link_list, seeds, cfg
     ctx.log(f"Config: {cfg['rounds']} rounds × {cfg['minutes_per_round']} min on {' + '.join(cfg['platforms'])}; "
             f"{len(seeds)} seed posts; {cfg['llm_posts_per_round']} LLM-written posts per round")
     ctx.stage(5)

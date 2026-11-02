@@ -101,7 +101,7 @@ export interface EnvConfig {
 export interface Environment {
   id: string; case_id: string; version_id: string; version_label: string; version_status: string | null; name: string; scenario: string;
   status: "preparing" | "ready" | "approved" | "failed"; config: EnvConfig; revision: number; created_by: string; created_at: string;
-  updated_at: string; job_id: string | null; agent_count: number; link_count: number; simulation_count: number;
+  updated_at: string; job_id: string | null; agent_count: number; link_count: number; simulation_count: number; synthetic_count?: number; speaking_count?: number;
   agents?: Agent[]; links?: AgentLink[]; seed_posts?: { round: number; content: string; source: string }[]; job?: Job | null;
 }
 export interface RoundMetric {

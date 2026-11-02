@@ -47,6 +47,8 @@ def env_out(db: Session, e: Environment, full: bool = True) -> dict:
                                       "created_by", "created_at", "updated_at", "job_id")}
     out.update(version_label=v.label if v else "?", version_status=v.status if v else None,
                agent_count=len(e.agents), link_count=len(e.links),
+               synthetic_count=sum(1 for a in e.agents if a.get("synthetic")),
+               speaking_count=sum(1 for a in e.agents if a.get("speaks", True)),
                simulation_count=db.scalar(select(func.count()).where(Simulation.environment_id == e.id)))
     if full:
         out.update(agents=[a if "behavior" in a else behavior.with_default(a) for a in e.agents], links=e.links,
@@ -59,6 +61,9 @@ class EnvIn(BaseModel):
     scenario: str = Field(default="", max_length=4000)
     version_id: str | None = None
     config: dict = Field(default_factory=dict)
+    # Reuse the synthetic personas (and their links) of another environment in this case. Personas are imported per
+    # environment, so without this a new environment starts with nobody able to post.
+    copy_personas_from: str | None = None
 
 
 class EnvPatch(BaseModel):
@@ -86,8 +91,13 @@ def create_env(case_id: str, body: EnvIn, bg: BackgroundTasks, db: Session = Dep
     if v is None:
         raise HTTPException(409, "Build a knowledge graph before setting up an environment")
     allowed = {k: body.config[k] for k in DEFAULT_CONFIG.keys() | {"focus_node_id", "focus_label"} if k in body.config}
-    env = Environment(case_id=case_id, version_id=v.id, name=body.name.strip(), scenario=body.scenario.strip(),
-                      config={**DEFAULT_CONFIG, **workspace.sim_defaults(db, user.tenant_id), **allowed},
+    cfg = {**DEFAULT_CONFIG, **workspace.sim_defaults(db, user.tenant_id), **allowed}
+    if body.copy_personas_from:
+        src = owned(db, user, Environment, body.copy_personas_from, "Environment to copy personas from")
+        if src.case_id != case_id:
+            raise HTTPException(404, "Environment to copy personas from not found in this case")
+        cfg["copy_personas_from"] = src.id
+    env = Environment(case_id=case_id, version_id=v.id, name=body.name.strip(), scenario=body.scenario.strip(), config=cfg,
                       created_by=user.name)
     db.add(env)
     db.flush()
@@ -261,6 +271,10 @@ def start_sim(env_id: str, body: SimIn, bg: BackgroundTasks, db: Session = Depen
     env = owned(db, user, Environment, env_id, "Environment")
     if env.status not in ("ready", "approved"):
         raise HTTPException(409, f"The environment is {env.status}; it must be ready or approved")
+    if not any(a.get("speaks", True) for a in env.agents):
+        raise HTTPException(409, "No agent in this environment can post, so there is nothing to simulate. Import synthetic personas into it "
+                                 "(Environment → Import synthetic personas), create it with “Reuse personas”, or switch off "
+                                 "“real actors are context-only” so graph actors can post.")
     overrides = {k: v for k, v in body.model_dump().items() if v is not None and k != "name"}
     n = db.scalar(select(func.count()).where(Simulation.case_id == env.case_id)) + 1
     sim = Simulation(case_id=env.case_id, environment_id=env.id, name=body.name or f"Run {n} · {env.name}",

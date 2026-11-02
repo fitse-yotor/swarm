@@ -7,7 +7,7 @@ import "@xyflow/react/dist/style.css";
 import { ArrowRight, Check, Copy, Layers, Plus, RefreshCw, Save, Trash2, Users } from "lucide-react";
 import { api, type Agent, type AgentLink, type Behavior, type BehaviorCatalogue, type EnvConfig, type Environment, type Graph, type Simulation } from "../api";
 import { useAuth } from "../auth";
-import { Empty, isUnavailable, Modal, useToast } from "../components/ui";
+import { Empty, Modal, useToast } from "../components/ui";
 import { StageLayout, StepCard, Stats, SysLog, jobState, stanceColor, stanceWord } from "../components/Stage";
 import { useEnvs, useJob, useTheme } from "../hooks";
 import { ago, initials, STYLE_LABEL } from "../vocab";
@@ -45,7 +45,8 @@ function EnvironmentList({ caseId }: { caseId: string }) {
       {can("env.edit") && <button className="btn pri" onClick={() => setSp({ new: "1" })}><Plus />New environment</button>}</Empty>}
     <div className="col">{(envs.data ?? []).map(e => <Link key={e.id} className="listrow" to={`/cases/${caseId}/environments/${e.id}`}>
       <Layers size={18} color="var(--location)" /><div className="grow"><b>{e.name}</b><div className="xs dim">{e.scenario || "Baseline — no injected event"}</div></div>
-      <span className="xs dim">{e.agent_count} agents · {e.link_count} links · graph {e.version_label}</span>
+      <span className="xs dim">{e.agent_count} agents · {e.synthetic_count ?? 0} personas · {e.link_count} links · graph {e.version_label}</span>
+      {e.status !== "preparing" && e.status !== "failed" && e.speaking_count === 0 && <span className="badge b-warn" title="Nobody can post in this environment. Import synthetic personas or reuse another environment's."><i />no posting agents</span>}
       <span className={`badge ${e.status === "approved" ? "b-ok" : e.status === "failed" ? "b-err" : e.status === "preparing" ? "b-warn" : "b-acc"}`}><i />{e.status}</span>
       <span className="xs dim">{ago(e.created_at)}</span></Link>)}</div>
   </div>;
@@ -58,11 +59,15 @@ function NewEnvModal({ caseId, title, onClose }: { caseId: string; title: string
   const graph = useQuery({ queryKey: ["graph", caseId, null], queryFn: () => api.get<Graph>(`/cases/${caseId}/graph`), retry: false });
   const [f, setF] = useState({ name: "Baseline", scenario: "", version_id: "", focus_node_id: "", rounds: 24, llm_personas: 6, llm_posts_per_round: 1, context_only: true, focus_label: "", shock: 0 });
   const [busy, setBusy] = useState(false);
+  const existing = useEnvs(caseId);
+  const withPersonas = (existing.data ?? []).filter(e => (e.synthetic_count ?? 0) > 0 && e.status !== "failed");
+  const [copyFrom, setCopyFrom] = useState<string | null>(null);  // null = not chosen yet: default to the newest environment that has personas
+  const reuse = copyFrom ?? withPersonas[0]?.id ?? "";
   const focusOpts = (graph.data?.nodes ?? []).filter(n => ["event", "policy", "topic"].includes(n.type) && n.status !== "rejected").sort((a, b) => b.degree - a.degree);
   const submit = async () => {
     setBusy(true);
     try {
-      const env = await api.post<Environment>(`/cases/${caseId}/environments`, { name: f.name, scenario: f.scenario, version_id: f.version_id || null,
+      const env = await api.post<Environment>(`/cases/${caseId}/environments`, { name: f.name, scenario: f.scenario, version_id: f.version_id || null, copy_personas_from: reuse || null,
         config: { rounds: f.rounds, llm_personas: f.llm_personas, llm_posts_per_round: f.llm_posts_per_round, real_actors_context_only: f.context_only, scenario_shock: f.shock, ...(f.focus_label.trim() ? { focus_label: f.focus_label.trim() } : {}),
           ...(f.focus_node_id ? { focus_node_id: f.focus_node_id } : {}) } });
       qc.invalidateQueries({ queryKey: ["envs", caseId] });
@@ -70,8 +75,10 @@ function NewEnvModal({ caseId, title, onClose }: { caseId: string; title: string
     } catch (e) { toast((e as Error).message, "err"); setBusy(false); }
   };
   return <Modal title="New environment" sub={`Agents are generated from a graph version of “${title}”.`} onClose={onClose}
-    footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn pri" disabled={busy || !f.name.trim() || !graph.data} onClick={submit}>{busy ? "Starting…" : "Generate environment"}</button></>}>
-    {graph.isError && <p className="small" style={{ color: "var(--err)" }}>{isUnavailable(graph.error) ? (graph.error as Error).message : "This case has no graph yet — build one first."}</p>}
+    footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn pri" disabled={busy || !f.name.trim()} onClick={submit}>{busy ? "Starting…" : "Generate environment"}</button></>}>
+    {graph.isError && (() => { const st = (graph.error as { status?: number }).status; const none = st === 404 || st === 409 || (graph.error as Error).message === "This case has no graph yet";
+      return <div className="banner warn" role="alert"><span className="grow">{none ? "This case has no graph yet — build one first." : <>The graph preview could not be loaded ({(graph.error as Error).message}). You can still create the environment: the focus-issue list and graph versions below just won&apos;t be filled in.</>}</span>
+        {!none && <button className="btn sm" onClick={() => graph.refetch()}>Retry</button>}</div>; })()}
     <div className="col gap12">
       <div className="field"><label htmlFor="en">Name</label><input id="en" className="inp" value={f.name} onChange={e => setF({ ...f, name: e.target.value })} /></div>
       <div className="field"><label htmlFor="es">Scenario (what-if injected into the run)</label>
@@ -91,6 +98,11 @@ function NewEnvModal({ caseId, title, onClose }: { caseId: string; title: string
         <div className="field"><label htmlFor="ep">LLM-written personas (top agents)</label><input id="ep" type="number" className="inp" min={0} max={50} value={f.llm_personas} onChange={e => setF({ ...f, llm_personas: +e.target.value })} /></div>
         <div className="field"><label htmlFor="eq">LLM-written posts per round</label><input id="eq" type="number" className="inp" min={0} max={10} value={f.llm_posts_per_round} onChange={e => setF({ ...f, llm_posts_per_round: +e.target.value })} /></div>
       </div>
+      <div className="field"><label htmlFor="epr">Synthetic personas</label>
+        <select id="epr" className="sel" value={reuse} onChange={e => setCopyFrom(e.target.value)}>
+          <option value="">Start with none (import them afterwards)</option>
+          {withPersonas.map(e => <option key={e.id} value={e.id}>Reuse the {e.synthetic_count} personas from “{e.name}”</option>)}</select>
+        <span className="hint">{reuse ? "The same personas, stances and behaviour are copied into this environment, so it can run straight away." : "With real actors context-only and no personas, nobody can post and the simulation cannot start."}</span></div>
       <label className="chk"><input type="checkbox" checked={f.context_only} onChange={e => setF({ ...f, context_only: e.target.checked })} />
         <span><b>Real actors are context-only</b> — people, parties and governments from the graph shape the scenario, but no posts are written in their names. Import synthetic personas to populate the run.</span></label>
       <p className="xs dim">The local LLM runs on this machine's CPU: each persona or post takes roughly 15–40 seconds. Everything else is generated from the graph instantly.</p>
@@ -375,8 +387,10 @@ function LaunchModal({ env, onClose }: { env: Environment; onClose: () => void }
     } catch (e) { toast((e as Error).message, "err"); setBusy(false); }
   };
   const speakers = (env.agents ?? []).filter(a => a.speaks !== false).length;
+  const nobody = speakers === 0;
   return <Modal title="Start simulation" sub={`${speakers} posting agents (${env.agent_count - speakers} context-only) on ${env.config.platforms.join(" + ")} · engine lattice-abm/1`} onClose={onClose}
-    footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn pri" disabled={busy} onClick={go}>{busy ? "Starting…" : "Start"}</button></>}>
+    footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn pri" disabled={busy || nobody} onClick={go}>{busy ? "Starting…" : "Start"}</button></>}>
+    {nobody && <div className="banner err" role="alert"><span><b>Nobody can post in this environment.</b> Real actors are context-only and no synthetic personas have been imported. Close this, use <b>Import synthetic personas</b> on the environment page (or create environments with “Reuse personas”), or untick “real actors are context-only”.</span></div>}
     <div className="field mb12"><label htmlFor="lm">Agent engine</label>
       <select id="lm" className="sel" value={mode} onChange={e => setMode(e.target.value as "rules" | "ai")}>
         <option value="rules">Rules + templates (fast, seconds)</option>
