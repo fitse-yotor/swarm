@@ -920,3 +920,12 @@ mark{background:color-mix(in srgb,var(--warn) 30%,transparent);color:inherit;bor
   .v2-rail .rl-foot{flex-direction:row;margin:0 0 0 auto;border-top:0;padding:0;width:auto}.v2-rail .rl-i.active::before{display:none}
   .v2-casebar,.v2-main{grid-column:1}.v2-foot{display:none}.rail-tip{display:none}.as-fab{bottom:70px}}
 .panel-h h3 .h-ic{color:var(--hi);vertical-align:-3px;margin-right:4px}
+
+/* live 2D graphs */
+.live-graph{position:absolute;inset:0;cursor:grab;background-image:radial-gradient(var(--dot) 1px,transparent 1px);background-size:22px 22px}
+.live-graph canvas{display:block}
+.rx-graph{position:relative;height:min(640px,calc(100vh - 330px));min-height:440px;border:1px solid var(--bd);border-radius:var(--r3);background:var(--canvas);overflow:hidden}
+.rx-graph-tools{position:absolute;right:12px;top:12px;z-index:2}
+.rx-graph-legend{position:absolute;left:12px;bottom:10px;right:12px;display:flex;flex-wrap:wrap;gap:12px;font-size:11.5px;color:var(--tx2);pointer-events:none}
+.rx-graph-legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:-1px}.rx-graph-legend i.sq{border-radius:2px}
+.rx-graph .gx-tip{position:absolute}

@@ -35,9 +35,10 @@ class Settings(BaseSettings):
     # Local LLM for GraphRAG answers, agent personas, simulated posts, reports and chat.
     llm_provider: str = "ollama"  # ollama | none
     ollama_url: str = "http://localhost:11434"
-    ollama_model: str = "gemma4"
+    # Fast default for CPU-only machines; set OLLAMA_MODEL=qwen3.5:4b (or larger) for better writing.
+    ollama_model: str = "qwen2.5:3b"
     ollama_agent_model: str = ""  # model for AI-agent turns; empty = ollama_model (a smaller one is faster on CPU)
-    ollama_num_ctx: int = 8192
+    ollama_num_ctx: int = 4096
     ollama_timeout: float = 900
 
     embedding_provider: str = "fastembed"  # fastembed | hash

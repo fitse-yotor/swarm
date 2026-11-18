@@ -16,7 +16,7 @@ swarm/
 |---|---|
 | Entity & relation extraction | spaCy `en_core_web_sm` (NER + dependency parsing) by default; `EXTRACTION_PROVIDER=ollama` uses the LLM instead (better relations, minutes per chunk on CPU) |
 | Embeddings | fastembed `BAAI/bge-small-en-v1.5` (ONNX) into pgvector |
-| GraphRAG answers, agent personas, simulated posts, report narrative, chat | Ollama, `gemma4` by default (`OLLAMA_MODEL`) |
+| GraphRAG answers, agent personas, simulated posts, report narrative, chat | Ollama, `qwen2.5:3b` by default (`OLLAMA_MODEL`; fast on CPU) |
 
 If Ollama is not running, every LLM feature degrades to a labelled fallback: retrieval-only answers, template personas and posts,
 templated report narrative, and chat answers assembled from stored data.
@@ -196,7 +196,7 @@ The sign-in page lists the seeded demo accounts from the API (`GET /api/v1/auth/
 
 ```bash
 # 0. Local LLM (optional but recommended)
-ollama serve & ollama pull gemma4
+ollama serve & ollama pull qwen2.5:3b   # fast default; qwen3.5:4b for better writing
 
 # 1. Infrastructure (set PG_PORT if 5432 is taken; match it in backend/.env DATABASE_URL)
 docker compose up -d postgres neo4j redis
@@ -227,7 +227,7 @@ cd frontend && npm run typecheck && npm run build
 ```
 
 ## Known limitations / next steps
-- **CPU-only LLM speed:** on an Intel CPU, `gemma4` writes about 6 tokens/s. A persona or post takes 15–40 s, and a report narrative or chat reply 20–120 s. Keep `llm_personas` and `llm_posts_per_round` small, or use a smaller model (`OLLAMA_MODEL`).
+- **CPU-only LLM speed:** on an Intel CPU, larger models such as `gemma4` write about 6 tokens/s (the `qwen2.5:3b` default is several times faster). A persona or post takes 15–40 s, and a report narrative or chat reply 20–120 s. Keep `llm_personas` and `llm_posts_per_round` small, or use a smaller model (`OLLAMA_MODEL`).
 - **spaCy extraction** finds typed relations only where the grammar is explicit (subject–verb–object, "X of Y", "X, chair of Y"). Other entity pairs in a sentence get a low-confidence `CO_OCCURS_WITH` edge for review. Agents' stances therefore often start neutral unless the graph has SUPPORTS/OPPOSES edges or an LLM persona assigns one.
 - **Docling on Intel Macs:** torch has no current macOS x86_64 wheels, so PDFs fall back to pypdf with a warning. Use the worker container (Linux) for Docling.
 - No Alembic migrations yet: new tables are created at API start (`create_all`); column changes need a migration before any shared database.

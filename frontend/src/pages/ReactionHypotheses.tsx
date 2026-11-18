@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Check, CircleSlash, Eye, FlaskConical, Network, Pencil, RefreshCw, Sparkles, Undo2 } from "lucide-react";
+import { AlertTriangle, Check, CircleSlash, Eye, FlaskConical, LayoutGrid, Network, Pencil, RefreshCw, Share2, Sparkles, Undo2 } from "lucide-react";
 import { api, type Reaction, type ReactionCategory, type ReactionDetail, type ReactionPage, type ReactionRun, type ReactionStatus } from "../api";
 import { useAuth } from "../auth";
 import { ConfBar, Drawer, Empty, EtypeTag, Modal, Spinner, useToast } from "../components/ui";
 import { ago } from "../vocab";
+import ReactionGraph from "../graph/ReactionGraph";
+import { load, store } from "../prefs";
 
 const LABEL = "AI-generated hypothesis — not a verified statement or actual response";
 const CAT: Record<ReactionCategory, string> = { support: "Support", opposition: "Opposition", concern: "Concern", neutrality: "Neutrality", negotiation: "Negotiation",
@@ -28,6 +30,8 @@ export default function ReactionHypotheses() {
   const [q, setQ] = useState("");
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [detail, setDetail] = useState<string | null>(sp.get("reaction"));
+  const [view, setView] = useState<"cards" | "graph">(() => load("rx.view", "graph"));
+  useEffect(() => store("rx.view", view), [view]);
   const [editing, setEditing] = useState<Reaction | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
   const editable = can("graph.review");
@@ -113,7 +117,9 @@ export default function ReactionHypotheses() {
         <select className="sel tb-sel" aria-label="Minimum confidence" value={f.min} onChange={e => setF({ ...f, min: e.target.value })}><option value="">Any confidence</option>
           <option value="0.3">Confidence ≥ 30%</option><option value="0.5">Confidence ≥ 50%</option><option value="0.7">Confidence ≥ 70%</option></select>
         <input className="inp tb-search" placeholder="Search actor or text" aria-label="Search reactions" value={q} onChange={e => setQ(e.target.value)} />
-        {filtered && <button className="btn ghost sm" onClick={() => { setF(NONE); setQ(""); }}>Clear filters</button>}</div>
+        {filtered && <button className="btn ghost sm" onClick={() => { setF(NONE); setQ(""); }}>Clear filters</button>}
+        <span className="grow" /><div className="viewseg" role="group" aria-label="View"><button className={view === "graph" ? "on" : ""} onClick={() => setView("graph")}><Share2 size={13} /> Graph</button>
+          <button className={view === "cards" ? "on" : ""} onClick={() => setView("cards")}><LayoutGrid size={13} /> Cards</button></div></div>
 
       {editable && pickedIds.length > 0 && <div className="bulkbar" role="toolbar" aria-label="Bulk actions"><b>{pickedIds.length} selected</b>
         <button className="btn sm" onClick={() => setStatus.mutate({ ids: pickedIds, status: "selected" })}><Check />Select for simulation</button>
@@ -124,6 +130,9 @@ export default function ReactionHypotheses() {
       {list.isLoading ? <p className="muted">Loading reactions…</p> : list.isError ? <Empty icon={<AlertTriangle />} title="Could not load reactions" text={(list.error as Error).message}><button className="btn" onClick={() => list.refetch()}>Try again</button></Empty>
         : !items.length ? <Empty icon={<Sparkles />} title={filtered ? "No reactions match these filters" : "This run produced no reactions"} text={filtered ? "Clear a filter to see more." : "No actor in the approved graph had enough relationships to the case issue. Approve more of the graph, then generate again."}>
           {filtered && <button className="btn" onClick={() => { setF(NONE); setQ(""); }}>Clear filters</button>}</Empty>
+        : view === "graph" ? <><ReactionGraph items={items} labels={CAT} onPick={setDetail} />
+          <div className="row mt8" style={{ justifyContent: "center" }}><span className="xs dim">Graph of {items.length} of {total} hypotheses · click to focus · double-click a hypothesis for evidence</span>
+            {list.hasNextPage && <button className="btn sm" disabled={list.isFetchingNextPage} onClick={() => list.fetchNextPage()}>{list.isFetchingNextPage && <Spinner />}Load more</button>}</div></>
         : <div className="col" style={{ gap: 18 }}>{groups.map(([actorId, g]) => <section key={actorId} aria-label={`Reactions for ${g.name}`}>
           <div className="row mb8"><EtypeTag type={g.type as never} /><h2 style={{ fontSize: 16 }}>{g.name}</h2>
             <Link className="btn ghost sm" to={`/cases/${caseId}/dynamic?focus=${actorId}`} title="Show this actor in the graph"><Network />In graph</Link>

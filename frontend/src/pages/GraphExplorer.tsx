@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { BookOpen, Box, Check, ChevronLeft, Download, Edit3, Filter, GitCompare, Info, Link2, List, Lock, Maximize, MessageSquare, Merge, Plus, RefreshCw,
-  Scan, Settings2, Share2, Square, X, ZoomIn, ZoomOut } from "lucide-react";
+import { Activity, BookOpen, Box, Check, ChevronLeft, Download, Edit3, Filter, GitCompare, Info, Link2, List, Lock, Maximize, MessageSquare, Merge, Plus, RefreshCw,
+  Scan, Settings2, Share2, Sparkles, Square, Wind, X, ZoomIn, ZoomOut } from "lucide-react";
 import { api, type ClaimStatus, type EntityType, type Graph } from "../api";
 import { useAuth } from "../auth";
 import { Empty, isUnavailable, ShapeIcon, StatusBadge, Unavailable, useToast } from "../components/ui";
 import Graph3D from "../graph/Graph3D";
+import LiveGraph, { type LiveHandle, type LiveLink, type LiveNode, type LiveShape } from "../graph/LiveGraph";
 import SigmaCanvas, { type CanvasEdge, type CanvasHandle, type CanvasNode, type LabelMode, type Layout } from "../graph/SigmaCanvas";
 import { load, store } from "../prefs";
-import { COMM_COL, ETYPES, TYPE_KEYS, pct, typeColor } from "../vocab";
+import { COMM_COL, ETYPES, TYPE_KEYS, cssVar, pct, typeColor } from "../vocab";
 import { useTheme } from "../hooks";
 import { useCase } from "./CaseDetail";
 import { Inspector } from "./graph/Inspector";
@@ -55,7 +56,10 @@ export default function GraphExplorer() {
   const [rpanel, setRpanel] = useState<"inspect" | "filters" | "sources" | "view" | null>(null);
   const [srcDoc, setSrcDoc] = useState<string | null>(null);
   const [isolate, setIsolate] = useState<string | null>(null);
-  const [view3d, setView3d] = useState(() => load("view3d", false));
+  // "live" (interactive force graph, default), "classic" (Sigma.js) or "3d"
+  const [gview, setGview] = useState<"live" | "classic" | "3d">(() => load("gview", "live"));
+  const view3d = gview === "3d";
+  const [cluster, setCluster] = useState(false);
   const [modal, setModal] = useState<string | null>(null);
   const [ask, setAsk] = useState(false);
   const [tip, setTip] = useState<{ html: React.ReactNode; x: number; y: number } | null>(null);
@@ -63,7 +67,7 @@ export default function GraphExplorer() {
 
   const g = graph.data;
   useEffect(() => { store("layout", layout); }, [layout]);
-  useEffect(() => { store("view3d", view3d); }, [view3d]);
+  useEffect(() => { store("gview", gview); }, [gview]);
   useEffect(() => { setSel(null); setSelEdge(null); setMulti(new Set()); setFocus(null); setIsolate(null); setF(f => ({ ...f, rels: null, docs: null, comm: "all" })); }, [g?.version.id]);
 
   const refresh = useCallback(async () => {
@@ -91,6 +95,19 @@ export default function GraphExplorer() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [g, sizeBy, colorBy, theme]);
+
+  const { liveNodes, liveLinks } = useMemo(() => {
+    const shape = (t: EntityType): LiveShape => (({ circle: "circle", square: "square", diamond: "diamond" } as Record<string, LiveShape>)[ETYPES[t]?.shape] ?? "hex");
+    const ring = (st: ClaimStatus) => (st === "conflict" ? cssVar("--warn") : st === "manual" ? cssVar("--acc") : st === "rejected" ? cssVar("--err") : undefined);
+    const ecol = (st: ClaimStatus) => (st === "manual" ? cssVar("--acc") : st === "conflict" ? cssVar("--warn") : st === "rejected" ? cssVar("--err") : undefined);
+    const byId = new Map((g?.nodes ?? []).map(n => [n.id, n]));
+    return {
+      liveNodes: canvasNodes.map(n => { const src = byId.get(n.id)!; return { id: n.id, label: n.label, color: n.fill, size: Math.max(4, n.size * 0.85), shape: shape(n.type),
+        group: n.community, ring: ring(n.status), sub: `${ETYPES[n.type].label} · ${src.degree} connections · ${pct(src.confidence)}` }; }) as LiveNode[],
+      liveLinks: (g?.edges ?? []).map(e => ({ id: e.id, source: e.s, target: e.o, label: e.type, color: ecol(e.status), dashed: e.status === "pending", width: 0.6 + e.confidence * 1.2 })) as LiveLink[],
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canvasNodes, g, theme]);
 
   // Clicking a node isolates it: only that node and its direct neighbours stay, until another node is clicked (or "show all").
   const isoSet = useMemo(() => {
@@ -222,7 +239,17 @@ export default function GraphExplorer() {
     <div className="gx gx2" style={{ flex: 1 }}>
       {/* ---------- canvas ---------- */}
       <section className={`gx-center ${full ? "full" : ""}`} aria-label="Graph canvas" style={full ? undefined : { right: 48 + (rpanel ? PANEL_W : 0) }}>
-        {view3d
+        {gview === "live" && <LiveGraph ref={canvas as unknown as React.Ref<LiveHandle>} nodes={liveNodes} links={liveLinks} hidden={hidden} highlight={highlight}
+          selected={canvasState.selected} selEdge={selEdge} labels={labels} theme={theme} cluster={cluster}
+          ariaLabel={`Live knowledge graph ${g.version.label}: ${shownN} entities, ${shownE} relationships. Use the filter panel's entity search for a keyboard-accessible list.`}
+          onNode={(id, add) => { if (add) { const m = new Set(multi); if (sel) m.add(sel); m.has(id) ? m.delete(id) : m.add(id); setMulti(m); setSel(null); setSelEdge(null); } else { select(id); canvas.current?.focus(id); } }}
+          onEdge={selectEdge} onBlank={() => { setSel(null); setSelEdge(null); setMulti(new Set()); }} onDouble={id => isolateNode(id)}
+          onHover={h => {
+            if (!h) return setTip(null);
+            if (h.node) { const n = g.nodes.find(x => x.id === h.node)!; setTip({ x: h.x, y: h.y, html: <><div className="row" style={{ gap: 6 }}><ShapeIcon type={n.type} /><b>{n.name}</b></div><div className="xs muted mt8">{ETYPES[n.type].label} · {n.degree} connections · {pct(n.confidence)}</div><div className="xs dim mt8">Click to focus · double-click to isolate · right-click to pin · drag to move</div></> }); }
+            else if (h.edge) { const e = g.edges.find(x => x.id === h.edge)!; const nm = (id: string) => g.nodes.find(n => n.id === id)?.name; setTip({ x: h.x, y: h.y, html: <><div className="small"><b>{nm(e.s)}</b> <span className="muted">{e.type}</span> <b>{nm(e.o)}</b></div><div className="xs muted mt8">{pct(e.confidence)} confidence · {e.evidence_ids.length} evidence · {e.status}</div></> }); }
+          }} />}
+        {gview !== "live" && (view3d
           ? <Graph3D nodes={g3.nodes} links={g3.links} live={false} theme={theme} labels={labels !== "none"} hidden={hidden} isolate={isolate} pin={false}
               onPick={(id) => isolateNode(id)} />
           : <SigmaCanvas ref={canvas} nodes={canvasNodes} edges={canvasEdges} state={canvasState} layout={layout} positionsKey={g.version.id} theme={theme}
@@ -233,7 +260,7 @@ export default function GraphExplorer() {
             if (!h) return setTip(null);
             if (h.node) { const n = g.nodes.find(x => x.id === h.node)!; setTip({ x: h.x, y: h.y, html: <><div className="row" style={{ gap: 6 }}><ShapeIcon type={n.type} /><b>{n.name}</b></div><div className="xs muted mt8">{ETYPES[n.type].label} · {n.degree} connections · {pct(n.confidence)}</div></> }); }
             else if (h.edge) { const e = g.edges.find(x => x.id === h.edge)!; const nm = (id: string) => g.nodes.find(n => n.id === id)?.name; setTip({ x: h.x, y: h.y, html: <><div className="small"><b>{nm(e.s)}</b> <span className="muted">{e.type}</span> <b>{nm(e.o)}</b></div><div className="xs muted mt8">{pct(e.confidence)} confidence · {e.evidence_ids.length} evidence · {e.status}</div></> }); }
-          }} />}
+          }} />)}
         <div className="gx-toolbar">
           <div className={`ver-chip ${locked ? "locked" : ""}`}>{locked ? <Lock size={13} style={{ color: "var(--ok)" }} /> : <Edit3 size={13} style={{ color: "var(--tx3)" }} />}
             <select aria-label="Graph version" value={g.version.id} onChange={e => pickVersion(e.target.value)} style={{ border: 0, background: "none", fontWeight: 600, cursor: "pointer" }}>
@@ -242,14 +269,18 @@ export default function GraphExplorer() {
             {locked ? can("graph.review") && <button className="btn sm" onClick={() => run(() => api.post<{ id: string }>(`/cases/${caseId}/graph/drafts?from_version=${g.version.id}`), "Draft created").then(v => v && pickVersion(v.id))}>New draft</button>
               : can("graph.approve") && <button className="btn sm ok" onClick={() => setModal("approve")}><Check />Approve</button>}</div>
           <div className="tb" role="group" aria-label="Dimension">
-            <button className={!view3d ? "on" : ""} title="2D view" aria-label="2D view" aria-pressed={!view3d} onClick={() => setView3d(false)}><Square /></button>
-            <button className={view3d ? "on" : ""} title="3D view" aria-label="3D view" aria-pressed={view3d} onClick={() => setView3d(true)}><Box /></button></div>
+            <button className={gview === "live" ? "on" : ""} title="Live 2D: drag, hover, focus" aria-label="Live 2D view" aria-pressed={gview === "live"} onClick={() => setGview("live")}><Sparkles /></button>
+            <button className={gview === "classic" ? "on" : ""} title="Classic 2D (best for very large graphs)" aria-label="Classic 2D view" aria-pressed={gview === "classic"} onClick={() => setGview("classic")}><Square /></button>
+            <button className={view3d ? "on" : ""} title="3D view" aria-label="3D view" aria-pressed={view3d} onClick={() => setGview("3d")}><Box /></button></div>
           <div className="tb" role="toolbar" aria-label="View">
             {!view3d && <><button title="Zoom in (+)" aria-label="Zoom in" onClick={() => canvas.current?.zoom(1.25)}><ZoomIn /></button>
             <button title="Zoom out (−)" aria-label="Zoom out" onClick={() => canvas.current?.zoom(0.8)}><ZoomOut /></button>
             <button title="Fit to view (F)" aria-label="Fit graph" onClick={() => canvas.current?.fit()}><Scan /></button>
+            {gview === "live" ? <>
+              <button className={cluster ? "on" : ""} title="Group by community" aria-label="Group by community" aria-pressed={cluster} onClick={() => setCluster(!cluster)}><Activity /></button>
+              <button title="Shake the layout" aria-label="Shake the layout" onClick={() => canvas.current?.relayout(layout)}><Wind /></button></> : <>
             <select aria-label="Layout" title="Layout" value={layout} onChange={e => { const l = e.target.value as Layout; setLayout(l); canvas.current?.relayout(l); }}>
-              <option value="force">ForceAtlas2</option><option value="clustered">Clustered</option><option value="circular">By type</option></select>
+              <option value="force">ForceAtlas2</option><option value="clustered">Clustered</option><option value="circular">By type</option></select></>}
             <button title="Reset layout and unpin all" aria-label="Reset layout" onClick={() => { canvas.current?.relayout(layout, true); toast("Layout reset and pins cleared"); }}><RefreshCw /></button></>}
             <button className={labels === "all" ? "on" : ""} title={`Labels: ${labels}`} aria-label="Cycle labels" onClick={() => setLabels(({ auto: "all", all: "none", none: "auto" } as const)[labels])}><List /></button>
             <button className={full ? "on" : ""} title="Fullscreen (Esc to exit)" aria-label="Fullscreen" onClick={() => setFull(!full)}><Maximize /></button>
