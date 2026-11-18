@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Check, Lock, Play, Share2 } from "lucide-react";
+import { Lock, Play, Share2 } from "lucide-react";
 import { api, type AuditItem, type Case, type Doc, type Job, type Version } from "../api";
 import { useAuth } from "../auth";
 import { CaseStatusBadge, Empty, useToast } from "../components/ui";
-import { STAGES, ago, fmtDate } from "../vocab";
+import { ago, fmtDate } from "../vocab";
 import { DocTable } from "./Documents";
+import CaseOverview from "./CaseOverview";
 
 export function useCase(caseId: string) {
   return useQuery({ queryKey: ["case", caseId], queryFn: () => api.get<Case>(`/cases/${caseId}`) });
@@ -44,15 +45,7 @@ export default function CaseDetail() {
     <div className="tabs" role="tablist">{[["overview", "Overview"], ["sources", `Sources ${docs.data?.length ?? ""}`], ["graph", `Graph versions ${vers.data?.length ?? ""}`], ["builds", "Builds"], ["audit", "Audit"]].map(([id, l]) =>
       <button key={id} role="tab" className={tab === id ? "on" : ""} onClick={() => setTab(id)}>{l}</button>)}</div>
 
-    {tab === "overview" && <div className="grid2">
-      <section className="panel"><div className="panel-h"><h3>Brief</h3></div><div className="panel-b"><dl className="kv">
-        <dt>Research question</dt><dd>{k.research_question || "Not set"}</dd><dt>Objective</dt><dd>{k.objective || "Not set"}</dd>
-        <dt>Owner</dt><dd>{k.owner_name}</dd><dt>Visibility</dt><dd>{k.visibility}</dd><dt>Created</dt><dd>{fmtDate(k.created_at)}</dd>
-        <dt>Tags</dt><dd className="row wrap gap4">{k.tags.length ? k.tags.map(t => <span key={t} className="tag">{t}</span>) : "—"}</dd></dl></div></section>
-      <section className="panel"><div className="panel-h"><h3>Stage</h3></div><div className="panel-b col">{STAGES.map((s, i) =>
-        <div className="row" key={s}><span className="sdot" style={i < k.stage ? { background: "var(--ok)", borderColor: "var(--ok)", color: "#fff" } : i === k.stage ? { borderColor: "var(--acc)" } : {}}>{i < k.stage && <Check />}</span>
-          <span className={i > Math.max(k.stage, 0) ? "dim" : ""}>{i + 1}. {s}</span><span className="grow" />
-          <Link className="btn sm ghost" to={`/cases/${caseId}/${["graph", "environments", "simulations", "reports", "interaction"][i]}`}>Open</Link></div>)}</div></section></div>}
+    {tab === "overview" && <CaseOverview caseId={caseId} k={k} />}
 
     {tab === "sources" && (docs.data?.length ? <div className="panel" style={{ overflowX: "auto" }}><DocTable docs={docs.data} caseId={caseId} /></div>
       : <Empty icon={<Share2 />} title="No sources yet" text="Upload PDF, Markdown or TXT files to build this case's graph."><Link className="btn pri" to={`/cases/${caseId}/documents`}>Upload sources</Link></Empty>)}

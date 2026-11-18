@@ -233,3 +233,20 @@ cd frontend && npm run typecheck && npm run build
 - No Alembic migrations yet: new tables are created at API start (`create_all`); column changes need a migration before any shared database.
 - Original files live on local disk (`STORAGE_DIR`); swap `services/storage.py` for S3/MinIO in deployment.
 - No malware scanning, OCR, SSO/MFA or undo. Job progress is polled, not pushed (SSE/WebSocket would be the next step).
+
+## v2 interface
+
+The web app now opens on the v2 layout (M2 family colours, light by default, dark when the system is dark):
+
+- **Top bar** with case search, the local model in use and the theme switch; **icon rail** whose case menus appear only
+  when a case is open; **case bar** with the five-stage stepper; **status footer** with service health.
+- **Dashboard**: key numbers, recent cases with stage progress, reaction sentiment of the latest run, local engine and activity.
+- **Case overview**: stage cards, **persona reaction growth** (posts, replies, reactions and analyst-triggered actions per
+  round, day or month, with personas engaged) and **reaction sentiment** (positive / neutral / negative, stance ±0.25).
+  Round dates follow the engine: the run starts at 08:00 on its creation day and each round adds `minutes_per_round`.
+- **Assistant** on every page: knows the page and case; inside a case with an approved graph it answers with GraphRAG.
+- **Settings** (`/settings`): appearance for everyone; for administrators, the **environment files** (`backend/.env`,
+  `frontend/.env`). Secrets are never sent to the browser, comments and order are kept, a `.env.bak` backup is written,
+  and every save is audited with variable names only. Changes apply after a restart
+  (Docker: `docker compose up -d --force-recreate api worker`; compose mounts `backend/.env` into the API container).
+  API: `GET /admin/env`, `PUT /admin/env/{backend|frontend}` with `{"changes": {"KEY": "value" | null}}`.

@@ -21,12 +21,14 @@ import Reports from "./pages/Reports";
 import Interaction from "./pages/Interaction";
 import Admin from "./pages/Admin";
 import Account from "./pages/Account";
+import Settings from "./pages/Settings";
 import DynamicGraph from "./pages/DynamicGraph";
 import ReactionHypotheses from "./pages/ReactionHypotheses";
 import { load } from "./prefs";
 import "./styles.css";
 
-document.documentElement.dataset.theme = load("theme", "dark");
+// Light by default; dark when the system prefers it and the viewer has not chosen.
+document.documentElement.dataset.theme = load("theme", window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light");
 const qc = new QueryClient({ defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false, staleTime: 10_000 } } });
 
 function Gate() {
@@ -56,6 +58,7 @@ function Gate() {
         <Route path="cases/:caseId/interaction" element={<Interaction />} />
         <Route path="cases/:caseId/interaction/:convId" element={<Interaction />} />
         <Route path="account" element={<Account />} />
+        <Route path="settings" element={<Settings />} />
         <Route path="admin" element={<Admin />} />
         <Route path="admin/:tab" element={<Admin />} />
         <Route path="*" element={<Navigate to="/" replace />} />

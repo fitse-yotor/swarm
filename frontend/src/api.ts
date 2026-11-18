@@ -217,6 +217,7 @@ export const api = {
   get: <T,>(p: string) => request<T>("GET", p),
   post: <T,>(p: string, b?: unknown) => request<T>("POST", p, b ?? {}),
   patch: <T,>(p: string, b: unknown) => request<T>("PATCH", p, b),
+  put: <T,>(p: string, b: unknown) => request<T>("PUT", p, b),
   del: (p: string) => request<void>("DELETE", p),
   upload: <T,>(p: string, files: File[]) => { const f = new FormData(); files.forEach(x => f.append("files", x)); return request<T>("POST", p, f); },
 };
